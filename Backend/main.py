@@ -1,0 +1,286 @@
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import PlainTextResponse
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+import httpx
+from typing import List, Optional, Dict, Any
+from config import settings
+
+app = FastAPI()
+
+# 2) Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[settings.FRONTEND_ORIGIN],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# 4) Implement endpoint: GET /health
+@app.get("/health")
+async def health_check():
+    return {"status": "ok", "service": "whatsapp-backend"}
+
+# 1) Preserve and slightly harden the existing webhook
+@app.get("/webhook")
+async def verify(request: Request):
+    mode = request.query_params.get("hub.mode")
+    token = request.query_params.get("hub.verify_token")
+    challenge = request.query_params.get("hub.challenge")
+
+    if mode == "subscribe" and token == settings.VERIFY_TOKEN:
+        return PlainTextResponse(challenge, status_code=200)
+    else:
+        return PlainTextResponse("Error, wrong token", status_code=403)
+
+@app.post("/webhook")
+async def webhook_received(request: Request):
+    try:
+        data = await request.json()
+        print("RAW DATA =", data)
+    except Exception:
+        data = None
+        print("⚠️ Webhook received but no JSON body")
+    
+    return {"status": "ok"}
+
+# 5) Implement endpoint: POST /send-message
+class MessageRequest(BaseModel):
+    phone: str
+    message: str
+
+@app.post("/send-message")
+async def send_message(req: MessageRequest):
+    if not req.phone or not req.message:
+        raise HTTPException(status_code=400, detail="Phone and message are required")
+
+    url = f"https://graph.facebook.com/{settings.WHATSAPP_API_VERSION}/{settings.WHATSAPP_PHONE_NUMBER_ID}/messages"
+    headers = {
+        "Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": req.phone,
+        "type": "text",
+        "text": {
+            "preview_url": False,
+            "body": req.message
+        }
+    }
+
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(url, json=payload, headers=headers)
+            response.raise_for_status()
+            return {"success": True, "whatsapp_response": response.json()}
+        except httpx.HTTPStatusError as e:
+            print(f"Error sending message: {e.response.text}")
+            return {"success": False, "error": "Failed to send message", "details": e.response.json()}
+        except Exception as e:
+            print(f"Unexpected error: {str(e)}")
+            return {"success": False, "error": "Unexpected error", "details": {"message": str(e)}}
+
+# 6) Implement endpoint: GET /templates
+@app.get("/templates")
+async def get_templates():
+    url = f"https://graph.facebook.com/{settings.WHATSAPP_API_VERSION}/{settings.WHATSAPP_WABA_ID}/message_templates"
+    headers = {
+        "Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN}",
+    }
+
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.get(url, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+            
+            templates = []
+            for item in data.get("data", []):
+                # if item.get("status") == "APPROVED":  <-- Removed filter
+                template_struct = {
+                    "name": item.get("name"),
+                    "language": item.get("language"),
+                    "category": item.get("category"),
+                    "id": item.get("id"),
+                    "status": item.get("status"), # Added status
+                    "components": []
+                }
+                    
+                for component in item.get("components", []):
+                    comp_type = component.get("type")
+                    
+                    if comp_type == "BODY":
+                        text = component.get("text", "")
+                        # Count {{x}} variables
+                        param_count = text.count("{{")
+                        template_struct["components"].append({
+                            "type": "BODY",
+                            "text": text,
+                            "parameter_count": param_count
+                        })
+                        
+                    elif comp_type == "HEADER":
+                        fmt = component.get("format")  # TEXT, IMAGE, VIDEO, DOCUMENT
+                        text = component.get("text", "")
+                        param_count = 0
+                        if fmt == "TEXT":
+                            param_count = text.count("{{")
+                        
+                        template_struct["components"].append({
+                            "type": "HEADER",
+                            "format": fmt,
+                            "text": text,
+                            "parameter_count": param_count
+                        })
+                        
+                    elif comp_type == "BUTTONS":
+                        buttons = component.get("buttons", [])
+                        template_struct["components"].append({
+                            "type": "BUTTONS",
+                            "buttons": buttons
+                        })
+                
+                templates.append(template_struct)
+            return templates
+        except httpx.HTTPStatusError as e:
+             print(f"Error fetching templates: {e.response.text}")
+             raise HTTPException(status_code=500, detail="Failed to fetch templates")
+        except Exception as e:
+            print(f"Unexpected error: {str(e)}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+# 6.1) Implement endpoint: GET /templates/{template_id}
+@app.get("/templates/{template_id}")
+async def get_template(template_id: str):
+    url = f"https://graph.facebook.com/{settings.WHATSAPP_API_VERSION}/{template_id}"
+    headers = {
+        "Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN}",
+    }
+
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.get(url, headers=headers)
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPStatusError as e:
+             print(f"Error fetching template {template_id}: {e.response.text}")
+             raise HTTPException(status_code=404, detail="Template not found")
+        except Exception as e:
+            print(f"Unexpected error: {str(e)}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+# 6.2) Implement endpoint: POST /templates/{template_id} (Update)
+class TemplateUpdate(BaseModel):
+    components: List[Dict[str, Any]]
+
+@app.post("/templates/{template_id}")
+async def update_template(template_id: str, req: TemplateUpdate):
+    url = f"https://graph.facebook.com/{settings.WHATSAPP_API_VERSION}/{template_id}"
+    headers = {
+        "Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN}",
+        "Content-Type": "application/json",
+    }
+    
+    payload = {
+        "components": req.components
+    }
+
+    async with httpx.AsyncClient() as client:
+        try:
+            # Meta API uses POST to update templates (sometimes called 'edit')
+            # Note: Only 'components' can usually be updated for existing templates without creating a new one.
+            response = await client.post(url, json=payload, headers=headers)
+            response.raise_for_status()
+            return {"success": True, "data": response.json()}
+        except httpx.HTTPStatusError as e:
+             print(f"Error updating template {template_id}: {e.response.text}")
+             raise HTTPException(status_code=400, detail=f"Failed to update template: {e.response.text}")
+        except Exception as e:
+            print(f"Unexpected error: {str(e)}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/templates/sync")
+async def sync_templates():
+    # In a real app with a DB, this would fetch from Meta and update the DB.
+    # Here, we just return success, and the frontend will re-fetch the list.
+    return {"status": "success", "message": "Templates synced successfully"}
+
+# 7) Implement endpoint: POST /send-template
+class TemplateRequest(BaseModel):
+    phone: str
+    template_name: str
+    language_code: str = "en"
+    body_parameters: List[str] = []
+    header_parameters: List[str] = []  # For TEXT params or Media URLs
+    header_type: Optional[str] = None  # IMAGE, VIDEO, DOCUMENT, TEXT, or None
+
+@app.post("/send-template")
+async def send_template(req: TemplateRequest):
+    if not req.phone or not req.template_name:
+        raise HTTPException(status_code=400, detail="Phone and template name are required")
+
+    url = f"https://graph.facebook.com/{settings.WHATSAPP_API_VERSION}/{settings.WHATSAPP_PHONE_NUMBER_ID}/messages"
+    headers = {
+        "Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN}",
+        "Content-Type": "application/json",
+    }
+
+    components = []
+
+    # 1) Handle Header
+    if req.header_type:
+        header_params = []
+        if req.header_type == "TEXT":
+             header_params = [{"type": "text", "text": p} for p in req.header_parameters]
+        elif req.header_type == "IMAGE":
+             if req.header_parameters:
+                 header_params.append({"type": "image", "image": {"link": req.header_parameters[0]}})
+        elif req.header_type == "VIDEO":
+             if req.header_parameters:
+                 header_params.append({"type": "video", "video": {"link": req.header_parameters[0]}})
+        elif req.header_type == "DOCUMENT":
+             if req.header_parameters:
+                 header_params.append({"type": "document", "document": {"link": req.header_parameters[0]}})
+
+        if header_params:
+            components.append({
+                "type": "header",
+                "parameters": header_params
+            })
+
+    # 2) Handle Body
+    if req.body_parameters:
+        body_params = [{"type": "text", "text": p} for p in req.body_parameters]
+        components.append({
+            "type": "body",
+            "parameters": body_params
+        })
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": req.phone,
+        "type": "template",
+        "template": {
+            "name": req.template_name,
+            "language": {
+                "code": req.language_code
+            },
+            "components": components
+        }
+    }
+
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(url, json=payload, headers=headers)
+            response.raise_for_status()
+            return {"success": True, "whatsapp_response": response.json()}
+        except httpx.HTTPStatusError as e:
+            print(f"Error sending template: {e.response.text}")
+            return {"success": False, "error": "Failed to send template", "details": e.response.json()}
+        except Exception as e:
+            print(f"Unexpected error: {str(e)}")
+            return {"success": False, "error": "Unexpected error", "details": {"message": str(e)}}
