@@ -13,7 +13,7 @@ export interface Template {
     name: string;
     language: string;
     category: string;
-    status: 'APPROVED' | 'PENDING' | 'REJECTED' | 'DRAFT'; // Updated status type
+    status: 'APPROVED' | 'PENDING' | 'REJECTED' | 'DRAFT';
     components: TemplateComponent[];
 }
 
@@ -33,7 +33,6 @@ export const syncTemplates = async (): Promise<{ status: string; message: string
         throw new Error('Failed to sync templates');
     }
     return response.json();
-    return response.json();
 };
 
 export const getTemplate = async (id: string): Promise<Template> => {
@@ -44,17 +43,17 @@ export const getTemplate = async (id: string): Promise<Template> => {
     return response.json();
 };
 
-export const updateTemplate = async (id: string, components: any[]): Promise<any> => {
-    const response = await fetch(`${BACKEND_URL}/templates/${id}`, {
+export const createTemplate = async (data: any): Promise<any> => {
+    const response = await fetch(`${BACKEND_URL}/templates/create`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ components }),
+        body: JSON.stringify(data),
     });
     if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.detail || 'Failed to update template');
+        throw new Error(errorData.detail || 'Failed to create template');
     }
     return response.json();
 };

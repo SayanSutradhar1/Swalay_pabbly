@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     WHATSAPP_API_VERSION: str = "v20.0"
     VERIFY_TOKEN: str
     FRONTEND_ORIGIN: str = "http://localhost:3000"
+    META_BUSINESS_ID: str
 
     class Config:
         env_file = ".env"

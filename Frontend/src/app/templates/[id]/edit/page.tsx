@@ -37,10 +37,11 @@ export default function EditTemplatePage() {
         }
     };
 
-    const handleSubmit = async (components: any[]) => {
+    const handleSubmit = async (data: any) => {
         setSubmitting(true);
         try {
-            await updateTemplate(id, components);
+            // Pass full data object for update (which is now create-replace)
+            await updateTemplate(id, data);
             router.push("/templates");
         } catch (err) {
             console.error(err);

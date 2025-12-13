@@ -23,6 +23,9 @@ async def health_check():
     return {"status": "ok", "service": "whatsapp-backend"}
 
 # 1) Preserve and slightly harden the existing webhook
+# In-memory storage for received messages
+RECEIVED_MESSAGES = []
+
 @app.get("/webhook")
 async def verify(request: Request):
     mode = request.query_params.get("hub.mode")
@@ -39,11 +42,57 @@ async def webhook_received(request: Request):
     try:
         data = await request.json()
         print("RAW DATA =", data)
-    except Exception:
-        data = None
-        print("⚠️ Webhook received but no JSON body")
+        
+        # Extract relevant info and store
+        if data.get("entry"):
+            for entry in data["entry"]:
+                for change in entry.get("changes", []):
+                        value = change.get("value", {})
+                        
+                        # Handle Incoming Messages
+                        if value.get("messages"):
+                            for msg in value["messages"]:
+                                message_data = {
+                                    "type": "message",
+                                    "direction": "incoming",
+                                    "from": msg.get("from"),
+                                    "id": msg.get("id"),
+                                    "timestamp": msg.get("timestamp"),
+                                    "text": msg.get("text", {}).get("body"),
+                                    "msg_type": msg.get("type"),
+                                    "raw": msg
+                                }
+                                # Add contact info if available
+                                if value.get("contacts"):
+                                    message_data["contact"] = value["contacts"][0]
+                                    
+                                RECEIVED_MESSAGES.append(message_data)
+
+                        # Handle Status Updates (Sent, Delivered, Read)
+                        if value.get("statuses"):
+                            for status in value["statuses"]:
+                                status_data = {
+                                    "type": "status",
+                                    "id": status.get("id"),
+                                    "status": status.get("status"),
+                                    "timestamp": status.get("timestamp"),
+                                    "recipient_id": status.get("recipient_id"),
+                                    "raw": status
+                                }
+                                RECEIVED_MESSAGES.append(status_data)
+
+                        # Keep only last 100 events
+                        if len(RECEIVED_MESSAGES) > 100:
+                            RECEIVED_MESSAGES.pop(0)
+                                
+    except Exception as e:
+        print(f"⚠️ Error processing webhook: {e}")
     
     return {"status": "ok"}
+
+@app.get("/messages")
+async def get_messages():
+    return RECEIVED_MESSAGES
 
 # 5) Implement endpoint: POST /send-message
 class MessageRequest(BaseModel):
@@ -172,32 +221,41 @@ async def get_template(template_id: str):
             print(f"Unexpected error: {str(e)}")
             raise HTTPException(status_code=500, detail=str(e))
 
-# 6.2) Implement endpoint: POST /templates/{template_id} (Update)
-class TemplateUpdate(BaseModel):
+
+
+# 6.3) Implement endpoint: POST /templates/create (Create New)
+class TemplateCreate(BaseModel):
+    name: str
+    category: str
+    language: str
+    parameter_format: Optional[str] = "POSITIONAL" # NAMED or POSITIONAL
     components: List[Dict[str, Any]]
 
-@app.post("/templates/{template_id}")
-async def update_template(template_id: str, req: TemplateUpdate):
-    url = f"https://graph.facebook.com/{settings.WHATSAPP_API_VERSION}/{template_id}"
+@app.post("/templates/create")
+async def create_template(req: TemplateCreate):
+
+    url = f"https://graph.facebook.com/{settings.WHATSAPP_API_VERSION}/{settings.META_BUSINESS_ID}/message_templates"
     headers = {
         "Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN}",
         "Content-Type": "application/json",
     }
     
     payload = {
+        "name": req.name,
+        "category": req.category,
+        "language": req.language,
+        "parameter_format": req.parameter_format,
         "components": req.components
     }
 
     async with httpx.AsyncClient() as client:
         try:
-            # Meta API uses POST to update templates (sometimes called 'edit')
-            # Note: Only 'components' can usually be updated for existing templates without creating a new one.
             response = await client.post(url, json=payload, headers=headers)
             response.raise_for_status()
             return {"success": True, "data": response.json()}
         except httpx.HTTPStatusError as e:
-             print(f"Error updating template {template_id}: {e.response.text}")
-             raise HTTPException(status_code=400, detail=f"Failed to update template: {e.response.text}")
+             print(f"Error creating template: {e.response.text}")
+             raise HTTPException(status_code=400, detail=f"Failed to create template: {e.response.text}")
         except Exception as e:
             print(f"Unexpected error: {str(e)}")
             raise HTTPException(status_code=500, detail=str(e))
@@ -284,3 +342,4 @@ async def send_template(req: TemplateRequest):
         except Exception as e:
             print(f"Unexpected error: {str(e)}")
             return {"success": False, "error": "Unexpected error", "details": {"message": str(e)}}
+

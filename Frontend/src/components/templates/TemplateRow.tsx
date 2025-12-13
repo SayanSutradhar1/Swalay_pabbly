@@ -45,9 +45,7 @@ export default function TemplateRow({ template }: TemplateRowProps) {
                 </Badge>
             </TableCell>
             <TableCell className="text-right">
-                <Button variant="ghost" size="sm" onClick={handleEditClick}>
-                    Edit
-                </Button>
+                {/* Edit removed as per requirement */}
             </TableCell>
         </TableRow>
     );
