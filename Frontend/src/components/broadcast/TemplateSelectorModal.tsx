@@ -1,16 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/Dialog";
 import { Button } from "@/components/ui/Button";
-import { Search } from "lucide-react";
+import { Search, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/Input";
-
-interface Template {
-    id: string;
-    name: string;
-    category: string;
-    language: string;
-    status: string;
-}
+import { fetchTemplates, Template } from '@/api/templates';
 
 interface TemplateSelectorModalProps {
     open: boolean;
@@ -18,24 +11,39 @@ interface TemplateSelectorModalProps {
     onSelect: (template: Template) => void;
 }
 
-const DUMMY_TEMPLATES: Template[] = [
-    { id: '1', name: 'welcome_message', category: 'MARKETING', language: 'en_US', status: 'APPROVED' },
-    { id: '2', name: 'order_confirmation', category: 'UTILITY', language: 'en_US', status: 'APPROVED' },
-    { id: '3', name: 'payment_reminder', category: 'UTILITY', language: 'en_US', status: 'APPROVED' },
-    { id: '4', name: 'diwali_offer', category: 'MARKETING', language: 'hi_IN', status: 'APPROVED' },
-    { id: '5', name: 'feedback_request', category: 'UTILITY', language: 'en_US', status: 'APPROVED' },
-];
-
 export default function TemplateSelectorModal({ open, onOpenChange, onSelect }: TemplateSelectorModalProps) {
     const [search, setSearch] = useState("");
     const [selectedId, setSelectedId] = useState<string | null>(null);
+    const [templates, setTemplates] = useState<Template[]>([]);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
 
-    const filteredTemplates = DUMMY_TEMPLATES.filter(t =>
+    useEffect(() => {
+        if (open) {
+            loadTemplates();
+        }
+    }, [open]);
+
+    const loadTemplates = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const data = await fetchTemplates();
+            // Filter only approved templates if needed, or show all
+            setTemplates(data.filter(t => t.status === 'APPROVED'));
+        } catch (err: any) {
+            setError(err.message || "Failed to load templates");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const filteredTemplates = templates.filter(t =>
         t.name.toLowerCase().includes(search.toLowerCase())
     );
 
     const handleConfirm = () => {
-        const template = DUMMY_TEMPLATES.find(t => t.id === selectedId);
+        const template = templates.find(t => t.id === selectedId);
         if (template) {
             onSelect(template);
             onOpenChange(false);
@@ -60,8 +68,17 @@ export default function TemplateSelectorModal({ open, onOpenChange, onSelect }: 
                         />
                     </div>
 
-                    <div className="border rounded-md max-h-[300px] overflow-y-auto">
-                        {filteredTemplates.length === 0 ? (
+                    <div className="border rounded-md max-h-[300px] overflow-y-auto min-h-[200px]">
+                        {loading ? (
+                            <div className="flex items-center justify-center h-[200px]">
+                                <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+                            </div>
+                        ) : error ? (
+                            <div className="flex flex-col items-center justify-center h-[200px] text-red-500 gap-2">
+                                <p>{error}</p>
+                                <Button variant="outline" size="sm" onClick={loadTemplates}>Retry</Button>
+                            </div>
+                        ) : filteredTemplates.length === 0 ? (
                             <div className="p-4 text-center text-gray-500 text-sm">No templates found</div>
                         ) : (
                             <div className="divide-y">

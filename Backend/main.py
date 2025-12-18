@@ -359,3 +359,59 @@ async def send_template(req: TemplateRequest):
             print(f"Unexpected error: {str(e)}")
             return {"success": False, "error": "Unexpected error", "details": {"message": str(e)}}
 
+
+# ... existing code ...
+
+# 8) Broadcast Template Endpoint
+from models import BroadcastTemplateRequest
+import asyncio
+
+@app.post("/broadcast-template")
+async def broadcast_template(req: BroadcastTemplateRequest):
+    if not req.phone_numbers or not req.template_name:
+        raise HTTPException(status_code=400, detail="Phone numbers and template name are required")
+
+    results = []
+    
+    # Reuse the logic from send_template. 
+    # Since send_template is an endpoint, we can refactor the logic or just construct the request object and call it.
+    # Calling the endpoint function directly is possible in FastAPI if we construct the dependency object (req).
+    
+    for phone in req.phone_numbers:
+        # Construct a single TemplateRequest for this phone number
+        single_req = TemplateRequest(
+            phone=phone,
+            template_name=req.template_name,
+            language_code=req.language_code,
+            body_parameters=req.body_parameters,
+            header_parameters=req.header_parameters,
+            header_type=req.header_type
+        )
+        
+        try:
+            # Call the existing send_template function logic
+            # Note: We are calling the function directly, not via HTTP.
+            # This works because send_template is an async function defined in this file.
+            response = await send_template(single_req)
+            
+            status = "sent" if response.get("success") else "failed"
+            results.append({
+                "phone": phone, 
+                "status": status, 
+                "details": response.get("whatsapp_response") or response.get("error")
+            })
+            
+        except HTTPException as e:
+             results.append({"phone": phone, "status": "failed", "error": e.detail})
+        except Exception as e:
+             results.append({"phone": phone, "status": "failed", "error": str(e)})
+        
+        # Rate limiting: Wait 1 second between messages to avoid hitting Meta limits
+        # Meta limits are usually higher (e.g. 80/sec), but safe default is good.
+        await asyncio.sleep(0.5) 
+
+    return {
+        "success": True,
+        "total": len(req.phone_numbers),
+        "results": results
+    }
