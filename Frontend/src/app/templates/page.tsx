@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Table, TableBody, TableHead, TableHeader, TableRow, TableCell } from "@/components/ui/DataTable";
 import { Plus, RefreshCw } from "lucide-react";
 import { useState, useEffect } from "react";
-import { fetchTemplates, syncTemplates, Template, deleteTemplate } from "@/api/templates";
+import { fetchTemplates, Template, deleteTemplate } from "@/api/templates";
 import { sendTemplate } from "@/api/messages";
 import TemplateRow from "@/components/templates/TemplateRow";
 import TemplateFilters from "@/components/templates/TemplateFilters";
@@ -20,7 +20,7 @@ export default function TemplatesPage() {
     const router = useRouter();
     const [templates, setTemplates] = useState<Template[]>([]);
     const [loading, setLoading] = useState(false);
-    const [syncing, setSyncing] = useState(false);
+    const [refreshing, setRefreshing] = useState(false);
     const [activeTab, setActiveTab] = useState("All");
     const [searchQuery, setSearchQuery] = useState("");
 
@@ -58,15 +58,14 @@ export default function TemplatesPage() {
         }
     };
 
-    const handleSync = async () => {
-        setSyncing(true);
+    const handleRefresh = async () => {
+        setRefreshing(true);
         try {
-            await syncTemplates();
             await loadTemplates();
         } catch (error) {
-            console.error("Failed to sync templates", error);
+            console.error("Failed to refresh templates", error);
         } finally {
-            setSyncing(false);
+            setRefreshing(false);
         }
     };
 
@@ -172,9 +171,9 @@ export default function TemplatesPage() {
             title="Templates"
             actions={
                 <div className="flex gap-2">
-                    <Button variant="outline" onClick={handleSync} disabled={syncing}>
-                        <RefreshCw className={`mr-2 h-4 w-4 ${syncing ? "animate-spin" : ""}`} />
-                        {syncing ? "Syncing..." : "Sync Templates"}
+                    <Button variant="outline" onClick={handleRefresh} disabled={refreshing}>
+                        <RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+                        {refreshing ? "Refreshing..." : "Refresh"}
                     </Button>
                     <Button onClick={handleAddTemplate}>
                         <Plus className="mr-2 h-4 w-4" /> Add Template

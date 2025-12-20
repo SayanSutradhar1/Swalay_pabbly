@@ -1,93 +1,36 @@
 "use client";
 
 import { PageWrapper } from "@/components/ui/PageWrapper";
-import TemplateForm from "@/components/templates/TemplateForm";
-import { getTemplate, updateTemplate, Template } from "@/api/templates";
-import { useRouter, useParams } from "next/navigation";
-import { useState, useEffect } from "react";
+import { Card, CardContent } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, Lock } from "lucide-react";
+import { useRouter } from "next/navigation";
 
 export default function EditTemplatePage() {
     const router = useRouter();
-    const params = useParams();
-    const id = params.id as string;
-
-    const [template, setTemplate] = useState<Template | undefined>(undefined);
-    const [loading, setLoading] = useState(true);
-    const [submitting, setSubmitting] = useState(false);
-    const [error, setError] = useState("");
-
-    useEffect(() => {
-        if (id) {
-            loadTemplate();
-        }
-    }, [id]);
-
-    const loadTemplate = async () => {
-        setLoading(true);
-        try {
-            const data = await getTemplate(id);
-            setTemplate(data);
-        } catch (err) {
-            console.error(err);
-            setError("Failed to load template.");
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const handleSubmit = async (data: any) => {
-        setSubmitting(true);
-        try {
-            // Pass full data object for update (which is now create-replace)
-            await updateTemplate(id, data);
-            router.push("/templates");
-        } catch (err) {
-            console.error(err);
-            alert("Failed to update template. Please try again.");
-        } finally {
-            setSubmitting(false);
-        }
-    };
-
-    if (loading) {
-        return (
-            <PageWrapper title="Edit Template">
-                <div className="flex items-center justify-center h-64">
-                    <p className="text-gray-500">Loading template...</p>
-                </div>
-            </PageWrapper>
-        );
-    }
-
-    if (error || !template) {
-        return (
-            <PageWrapper title="Edit Template">
-                <div className="flex flex-col items-center justify-center h-64 gap-4">
-                    <p className="text-red-500">{error || "Template not found."}</p>
-                    <Button variant="outline" onClick={() => router.back()}>
-                        Go Back
-                    </Button>
-                </div>
-            </PageWrapper>
-        );
-    }
 
     return (
         <PageWrapper
-            title={`Edit Template: ${template.name}`}
+            title="Edit Template"
             actions={
-                <Button variant="ghost" onClick={() => router.back()}>
+                <Button variant="outline" onClick={() => router.back()}>
                     <ChevronLeft className="mr-2 h-4 w-4" /> Back
                 </Button>
             }
         >
-            <TemplateForm
-                initialData={template}
-                onSubmit={handleSubmit}
-                isSubmitting={submitting}
-            />
+            <Card className="border-amber-200 bg-amber-50 dark:bg-amber-950">
+                <CardContent className="pt-6">
+                    <div className="flex items-center gap-3">
+                        <Lock className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+                        <div>
+                            <h3 className="font-semibold text-amber-900 dark:text-amber-100">Templates Cannot Be Edited</h3>
+                            <p className="text-sm text-amber-800 dark:text-amber-200 mt-1">
+                                Templates are managed by WhatsApp Business. You can view template details but cannot edit them directly.
+                            </p>
+                        </div>
+                    </div>
+                </CardContent>
+            </Card>
         </PageWrapper>
     );
 }

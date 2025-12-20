@@ -25,16 +25,6 @@ export const fetchTemplates = async (): Promise<Template[]> => {
     return response.json();
 };
 
-export const syncTemplates = async (): Promise<{ status: string; message: string }> => {
-    const response = await fetch(`${BACKEND_URL}/templates`, {
-        method: 'POST',
-    });
-    if (!response.ok) {
-        throw new Error('Failed to sync templates');
-    }
-    return response.json();
-};
-
 export const getTemplate = async (id: string): Promise<Template> => {
     const response = await fetch(`${BACKEND_URL}/templates/${id}`);
     if (!response.ok) {

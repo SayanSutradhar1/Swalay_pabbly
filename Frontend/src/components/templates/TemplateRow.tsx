@@ -17,7 +17,7 @@ export default function TemplateRow({ template, onSend, onDelete }: {
     const router = useRouter();
 
     const handleRowClick = () => {
-        // router.push(`/templates/${template.id}`); // View details if needed
+        router.push(`/templates/${template.id}`);
     };
 
     return (
