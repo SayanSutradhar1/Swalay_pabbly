@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 import { ChevronLeft } from "lucide-react";
 import { useGetTemplates, useCreateBroadcast } from "@/hooks/useApi";
+import TemplatePreview from "@/components/templates/TemplatePreview";
 
 export default function NewBroadcastPage() {
     const router = useRouter();
@@ -22,6 +23,7 @@ export default function NewBroadcastPage() {
     const selectedTemplate = templates?.find((t: any) => t.id === selectedTemplateId) ?? null;
 
     // parameters derived from template
+    const [headerParams, setHeaderParams] = useState<string[]>([]);
     const [bodyParams, setBodyParams] = useState<string[]>([]);
 
     const [submitting, setSubmitting] = useState(false);
@@ -38,15 +40,28 @@ export default function NewBroadcastPage() {
         setPhones((prev) => prev.filter((_, i) => i !== idx));
     };
 
-    // whenever selectedTemplate changes, reset bodyParams to required count
+    // whenever selectedTemplate changes, reset params
     useEffect(() => {
-        if (!selectedTemplate) return;
-        // Count parameters in components (BODY & TEXT HEADER)
-        let paramCount = 0;
-        for (const comp of selectedTemplate.components || []) {
-            if (comp.parameter_count) paramCount += comp.parameter_count;
+        if (!selectedTemplate) {
+            setHeaderParams([]);
+            setBodyParams([]);
+            return;
         }
-        setBodyParams(Array(paramCount).fill(""));
+
+        let hCount = 0;
+        let bCount = 0;
+
+        for (const comp of selectedTemplate.components || []) {
+            if (comp.type === 'HEADER' && comp.format === 'TEXT' && comp.parameter_count) {
+                hCount = comp.parameter_count;
+            }
+            if (comp.type === 'BODY' && comp.parameter_count) {
+                bCount = comp.parameter_count;
+            }
+        }
+
+        setHeaderParams(Array(hCount).fill(""));
+        setBodyParams(Array(bCount).fill(""));
     }, [selectedTemplate]);
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -64,6 +79,7 @@ export default function NewBroadcastPage() {
                 template_name: selectedTemplate.name,
                 template_id: selectedTemplate.id,
                 language_code: selectedTemplate.language,
+                header_parameters: headerParams.filter(Boolean),
                 body_parameters: bodyParams.filter(Boolean),
             };
 
@@ -78,6 +94,51 @@ export default function NewBroadcastPage() {
         }
     };
 
+    // Construct preview data
+    const getPreviewData = () => {
+        if (!selectedTemplate) return {};
+
+        let headerText = "";
+        let bodyText = "";
+        let buttons = [];
+        let type = "TEXT";
+        let headerFile = null; // We don't support file upload for broadcast yet, or it's not in the requirements to preview it dynamically from upload
+
+        for (const comp of selectedTemplate.components || []) {
+            if (comp.type === 'HEADER') {
+                if (comp.format === 'TEXT') {
+                    headerText = comp.text || "";
+                    // Replace params
+                    headerParams.forEach((val, i) => {
+                        headerText = headerText.replace(`{{${i + 1}}}`, val || `{{${i + 1}}}`);
+                    });
+                } else {
+                    type = comp.format || "TEXT";
+                }
+            }
+            if (comp.type === 'BODY') {
+                bodyText = comp.text || "";
+                // Replace params
+                bodyParams.forEach((val, i) => {
+                    bodyText = bodyText.replace(`{{${i + 1}}}`, val || `{{${i + 1}}}`);
+                });
+            }
+            if (comp.type === 'BUTTONS') {
+                buttons = comp.buttons || [];
+            }
+        }
+
+        return {
+            name: selectedTemplate.name,
+            language: selectedTemplate.language,
+            type,
+            header_text: headerText,
+            body_text: bodyText,
+            buttons,
+            category: selectedTemplate.category
+        };
+    };
+
     return (
         <PageWrapper
             title="Create New Broadcast"
@@ -87,58 +148,97 @@ export default function NewBroadcastPage() {
                 </Button>
             }
         >
-            <form className="space-y-6 max-w-2xl" onSubmit={handleSubmit}>
-                <div>
-                    <label className="text-sm font-medium">Broadcast Name</label>
-                    <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="My broadcast" />
-                </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <form className="space-y-6" onSubmit={handleSubmit}>
+                    <div className="space-y-4">
+                        <div>
+                            <label className="text-sm font-medium">Broadcast Name</label>
+                            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="My broadcast" />
+                        </div>
 
-                <div>
-                    <label className="text-sm font-medium">Recipients</label>
-                    <div className="flex gap-2">
-                        <Input placeholder="Enter phone number" value={phoneInput} onChange={(e) => setPhoneInput(e.target.value)} />
-                        <Button type="button" onClick={addPhone}>Add</Button>
-                    </div>
-                    <div className="mt-3 space-y-1">
-                        {phones.map((p, idx) => (
-                            <div key={idx} className="flex items-center justify-between gap-2 border rounded-md px-3 py-2">
-                                <div className="text-sm">{p}</div>
-                                <Button variant="ghost" size="sm" onClick={() => removePhone(idx)}>Remove</Button>
+                        <div>
+                            <label className="text-sm font-medium">Recipients</label>
+                            <div className="flex gap-2">
+                                <Input placeholder="Enter phone number" value={phoneInput} onChange={(e) => setPhoneInput(e.target.value)} />
+                                <Button type="button" onClick={addPhone}>Add</Button>
                             </div>
-                        ))}
-                        <p className="text-xs text-gray-500">You can add multiple recipients. Use E.164 format where possible.</p>
-                    </div>
-                </div>
+                            <div className="mt-3 space-y-1">
+                                {phones.map((p, idx) => (
+                                    <div key={idx} className="flex items-center justify-between gap-2 border rounded-md px-3 py-2">
+                                        <div className="text-sm">{p}</div>
+                                        <Button variant="ghost" size="sm" onClick={() => removePhone(idx)}>Remove</Button>
+                                    </div>
+                                ))}
+                                <p className="text-xs text-gray-500">You can add multiple recipients. Use E.164 format where possible.</p>
+                            </div>
+                        </div>
 
-                <div>
-                    <label className="text-sm font-medium">Template</label>
-                    <select className="flex h-10 w-full rounded-md border border-input px-3" value={selectedTemplateId || ''} onChange={(e) => setSelectedTemplateId(e.target.value || null)}>
-                        <option value="">Select a template...</option>
-                        {templates?.map((t: any) => (
-                            <option key={t.id} value={t.id}>{t.name} ({t.language})</option>
-                        ))}
-                    </select>
-                </div>
+                        <div>
+                            <label className="text-sm font-medium">Template</label>
+                            <select className="flex h-10 w-full rounded-md border border-input px-3" value={selectedTemplateId || ''} onChange={(e) => setSelectedTemplateId(e.target.value || null)}>
+                                <option value="">Select a template...</option>
+                                {templates?.map((t: any) => (
+                                    <option key={t.id} value={t.id}>{t.name} ({t.language})</option>
+                                ))}
+                            </select>
+                        </div>
 
+                        {selectedTemplate && (
+                            <div className="space-y-4 border rounded-md p-4 bg-gray-50/50">
+                                <h3 className="font-medium text-sm">Template Parameters</h3>
 
-                {selectedTemplate && (
-                    <div className="space-y-2">
-                        <label className="text-sm font-medium">Template Parameters</label>
-                        {bodyParams.length === 0 ? (
-                            <div className="text-sm text-gray-500">No parameters required.</div>
-                        ) : (
-                            bodyParams.map((val, idx) => (
-                                <Input key={idx} placeholder={`Param ${idx + 1}`} value={val} onChange={(e) => setBodyParams(prev => { const copy = [...prev]; copy[idx] = e.target.value; return copy; })} />
-                            ))
+                                {headerParams.length > 0 && (
+                                    <div className="space-y-2">
+                                        <label className="text-xs font-medium text-gray-500 uppercase">Header Parameters</label>
+                                        {headerParams.map((val, idx) => (
+                                            <Input
+                                                key={`h-${idx}`}
+                                                placeholder={`Header Param {{${idx + 1}}}`}
+                                                value={val}
+                                                onChange={(e) => setHeaderParams(prev => { const copy = [...prev]; copy[idx] = e.target.value; return copy; })}
+                                            />
+                                        ))}
+                                    </div>
+                                )}
+
+                                {bodyParams.length > 0 && (
+                                    <div className="space-y-2">
+                                        <label className="text-xs font-medium text-gray-500 uppercase">Body Parameters</label>
+                                        {bodyParams.map((val, idx) => (
+                                            <Input
+                                                key={`b-${idx}`}
+                                                placeholder={`Body Param {{${idx + 1}}}`}
+                                                value={val}
+                                                onChange={(e) => setBodyParams(prev => { const copy = [...prev]; copy[idx] = e.target.value; return copy; })}
+                                            />
+                                        ))}
+                                    </div>
+                                )}
+
+                                {headerParams.length === 0 && bodyParams.length === 0 && (
+                                    <div className="text-sm text-gray-500">No parameters required for this template.</div>
+                                )}
+                            </div>
                         )}
-                    </div>
-                )}
 
-                <div className="flex gap-2">
-                    <Button type="submit" disabled={submitting}>{submitting ? 'Sending...' : 'Create Broadcast'}</Button>
-                    <Button variant="outline" onClick={() => router.push('/broadcast')}>Cancel</Button>
+                        <div className="flex gap-2 pt-4">
+                            <Button type="submit" disabled={submitting}>{submitting ? 'Sending...' : 'Create Broadcast'}</Button>
+                            <Button variant="outline" onClick={() => router.push('/broadcast')}>Cancel</Button>
+                        </div>
+                    </div>
+                </form>
+
+                {/* Preview Section */}
+                <div className="hidden lg:block">
+                    {selectedTemplate ? (
+                        <TemplatePreview data={getPreviewData() as any} />
+                    ) : (
+                        <div className="flex items-center justify-center h-full min-h-[400px] border-2 border-dashed rounded-lg text-gray-400">
+                            Select a template to view preview
+                        </div>
+                    )}
                 </div>
-            </form>
+            </div>
         </PageWrapper>
     );
 }

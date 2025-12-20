@@ -82,7 +82,7 @@ export const DialogContent = ({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
             <div
                 className={cn(
-                    "relative w-full max-w-lg rounded-lg bg-white dark:bg-gray-900 p-6 shadow-lg animate-in fade-in zoom-in-95 duration-200",
+                    "relative w-full max-w-lg rounded-lg bg-white p-6 shadow-lg animate-in fade-in zoom-in-95 duration-200",
                     className
                 )}
             >
