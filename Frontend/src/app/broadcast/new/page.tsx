@@ -73,12 +73,22 @@ export default function NewBroadcastPage() {
 
         setSubmitting(true);
         try {
+            // Determine header type from the selected template (if any)
+            let headerType: string | null = null;
+            for (const comp of selectedTemplate.components || []) {
+                if (comp.type === 'HEADER') {
+                    headerType = comp.format || 'TEXT';
+                    break;
+                }
+            }
+
             const payload = {
                 name,
                 phones,
                 template_name: selectedTemplate.name,
                 template_id: selectedTemplate.id,
                 language_code: selectedTemplate.language,
+                header_type: headerType,
                 header_parameters: headerParams.filter(Boolean),
                 body_parameters: bodyParams.filter(Boolean),
             };

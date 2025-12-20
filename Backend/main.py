@@ -387,63 +387,34 @@ async def create_broadcast(req: BroadcastRequest):
 
     BROADCASTS.append(broadcast)
 
-    # Send messages respecting rate limits
-    url = f"https://graph.facebook.com/{settings.WHATSAPP_API_VERSION}/{settings.WHATSAPP_PHONE_NUMBER_ID}/messages"
-    headers = {
-        "Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN}",
-        "Content-Type": "application/json",
-    }
+    # Send messages respecting rate limits by re-using `send_template` logic
+    for recipient in broadcast["recipients"]:
+        try:
+            template_req = TemplateRequest(
+                phone=recipient["phone"],
+                template_name=req.template_name,
+                language_code=req.language_code,
+                body_parameters=req.body_parameters,
+                header_parameters=req.header_parameters,
+                header_type=req.header_type
+            )
 
-    async with httpx.AsyncClient() as client:
-        for idx, recipient in enumerate(broadcast["recipients"]):
-            phone = recipient["phone"]
+            res = await send_template(template_req)
 
-            components = []
-            if req.header_type:
-                header_params = []
-                if req.header_type == "TEXT":
-                    header_params = [{"type": "text", "text": p} for p in req.header_parameters]
-                elif req.header_type == "IMAGE" and req.header_parameters:
-                    header_params.append({"type": "image", "image": {"link": req.header_parameters[0]}})
-                if header_params:
-                    components.append({"type": "header", "parameters": header_params})
-
-            if req.body_parameters:
-                body_params = [{"type": "text", "text": p} for p in req.body_parameters]
-                components.append({"type": "body", "parameters": body_params})
-
-            payload = {
-                "messaging_product": "whatsapp",
-                "recipient_type": "individual",
-                "to": phone,
-                "type": "template",
-                "template": {
-                    "name": req.template_name,
-                    "language": {"code": req.language_code},
-                    "components": components
-                }
-            }
-
-            try:
-                response = await client.post(url, json=payload, headers=headers)
-                response.raise_for_status()
-                res_json = response.json()
+            if isinstance(res, dict) and res.get("success"):
                 recipient["status"] = "sent"
-                recipient["details"] = res_json
-            except httpx.HTTPStatusError as e:
-                print(f"Error sending to {phone}: {e.response.text}")
+                recipient["details"] = res.get("whatsapp_response")
+            else:
                 recipient["status"] = "failed"
-                try:
-                    recipient["details"] = e.response.json()
-                except Exception:
-                    recipient["details"] = {"error": e.response.text}
-            except Exception as e:
-                print(f"Unexpected error sending to {phone}: {str(e)}")
-                recipient["status"] = "failed"
-                recipient["details"] = {"error": str(e)}
+                # Keep any details provided by send_template
+                recipient["details"] = res.get("details") if isinstance(res, dict) else {"error": "Unknown error"}
+        except Exception as e:
+            print(f"Unexpected error sending to {recipient['phone']}: {str(e)}")
+            recipient["status"] = "failed"
+            recipient["details"] = {"error": str(e)}
 
-            # Rate limit between sends
-            await asyncio.sleep(1.0 / RATE_LIMIT_PER_SECOND)
+        # Rate limit between sends
+        await asyncio.sleep(1.0 / RATE_LIMIT_PER_SECOND)
 
     # After sending all messages, return summary
     sent = sum(1 for r in broadcast["recipients"] if r["status"] == "sent")

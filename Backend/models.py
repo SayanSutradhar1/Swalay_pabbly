@@ -31,15 +31,6 @@ class TemplateRequest(BaseModel):
     header_parameters: List[str] = []  # For TEXT params or Media URLs
     header_type: Optional[str] = None  # IMAGE, VIDEO, DOCUMENT, TEXT, or None
 
-class BroadcastTemplateRequest(BaseModel):
-    phone_numbers: List[str]
-    template_name: str
-    language_code: str = "en"
-    body_parameters: List[str] = []
-    header_parameters: List[str] = []
-    header_type: Optional[str] = None
-
-
 class BroadcastRequest(BaseModel):
     name: str
     phones: List[str]
