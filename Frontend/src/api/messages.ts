@@ -7,6 +7,7 @@ export interface Message {
     receiverId: string;
     text: string;
     status: 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
+    direction: 'incoming' | 'outgoing';
     createdAt: string;
     updatedAt: string;
     whatsappMessageId?: string;
@@ -105,7 +106,7 @@ export const getMessages = async (chatId?: string, limit: number = 50): Promise<
     const params = new URLSearchParams();
     if (chatId) params.append('chatId', chatId);
     params.append('limit', limit.toString());
-    
+
     const response = await fetch(`${BACKEND_URL}/messages?${params.toString()}`, {
         credentials: 'include',
     });

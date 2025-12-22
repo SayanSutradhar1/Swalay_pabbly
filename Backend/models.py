@@ -30,8 +30,9 @@ class Message(BaseModel):
     chatId: str
     senderId: str
     receiverId: str
+    direction: Literal["incoming", "outgoing"]
     text: str
-    status: Literal["sending", "sent", "delivered", "read"] = "sent"
+    status: Literal["sending", "sent", "delivered", "read", "failed"] = "sent"
     createdAt: Optional[str] = None
     updatedAt: Optional[str] = None
     whatsappMessageId: Optional[str] = None  # WhatsApp's message ID from Meta API
@@ -77,12 +78,4 @@ class BroadcastRequest(BaseModel):
     header_parameters: List[str] = []
     header_type: Optional[str] = None
 
-class Message(BaseModel):
-    id: str
-    contact_id: str
-    direction: Literal["incoming", "outgoing"]
-    type: str
-    text: Optional[str] = None
-    status: Optional[str] = None
-    timestamp: str
-    raw: Optional[dict] = None
+

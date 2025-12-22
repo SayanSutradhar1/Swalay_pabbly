@@ -256,7 +256,8 @@ async def logout():
     return response
 
 # 1) Preserve and slightly harden the existing webhook
-# MongoDB collection: "messages"
+# In-memory storage for received messages
+RECEIVED_MESSAGES = []
 
 @app.get("/webhook")
 async def verify(request: Request):
@@ -271,7 +272,6 @@ async def verify(request: Request):
 
 @app.post("/webhook")
 async def webhook_received(request: Request):
-    db = await get_db(request)
     try:
         data = await request.json()
         print("RAW DATA =", data)
@@ -287,16 +287,14 @@ async def webhook_received(request: Request):
                         # Handle Incoming Messages
                         if value.get("messages"):
                             for msg in value["messages"]:
-                                contact_id = msg.get("from")
                                 message_data = {
                                     "type": "message",
                                     "direction": "incoming",
-                                    "contact_id": contact_id,
+                                    "from": msg.get("from"),
                                     "id": msg.get("id"),
                                     "timestamp": msg.get("timestamp"),
                                     "text": msg.get("text", {}).get("body"),
                                     "msg_type": msg.get("type"),
-                                    "status": "received",
                                     "raw": msg
                                 }
                                 # Add contact info if available
@@ -310,6 +308,7 @@ async def webhook_received(request: Request):
                                     "chatId": msg.get("from"),
                                     "senderId": msg.get("from"),
                                     "receiverId": settings.WHATSAPP_PHONE_NUMBER_ID,
+                                    "direction": "incoming",
                                     "text": msg.get("text", {}).get("body", ""),
                                     "status": "delivered",  # Incoming messages are already delivered
                                     "createdAt": datetime.utcnow().isoformat(),
@@ -434,6 +433,7 @@ async def send_message(
         "chatId": req.phone,  # Using phone as chatId for simplicity
         "senderId": current_user.id,
         "receiverId": req.phone,
+        "direction": "outgoing",
         "text": req.message,
         "status": "sent",
         "createdAt": datetime.utcnow().isoformat(),
@@ -855,4 +855,3 @@ async def get_broadcast(
         if b["id"] == broadcast_id:
             return b
     raise HTTPException(status_code=404, detail="Broadcast not found")
-
