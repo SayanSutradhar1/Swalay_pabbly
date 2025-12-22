@@ -4,6 +4,7 @@ from typing import Optional
 from uuid import uuid4
 
 import httpx
+import socketio
 from bson import ObjectId
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -18,6 +19,7 @@ from pymongo.errors import DuplicateKeyError
 from config import settings
 from models import (
     BroadcastRequest,
+    Message,
     MessageRequest,
     TemplateCreate,
     TemplateRequest,
@@ -28,6 +30,19 @@ from models import (
 )
 
 app = FastAPI()
+
+# Initialize Socket.IO server
+sio = socketio.AsyncServer(
+    async_mode='asgi',
+    cors_allowed_origins='*',  # Configure based on your needs
+    logger=True,
+    engineio_logger=True
+)
+socket_app = socketio.ASGIApp(sio, app)
+
+# User socket mapping: userId -> socketId
+user_sockets = {}
+
 pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
 TOKEN_COOKIE_NAME = "access_token"
@@ -55,6 +70,44 @@ async def shutdown_db_client():
     mongo_client = getattr(app.state, "mongo_client", None)
     if mongo_client:
         mongo_client.close()
+
+
+# ===================== Socket.IO Event Handlers =====================
+
+@sio.event
+async def connect(sid, environ):
+    """Handle client connection"""
+    print(f"🔌 Client connected: {sid}")
+    
+
+@sio.event
+async def disconnect(sid):
+    """Handle client disconnection"""
+    print(f"🔌 Client disconnected: {sid}")
+    # Remove user from mapping
+    user_id_to_remove = None
+    for user_id, socket_id in user_sockets.items():
+        if socket_id == sid:
+            user_id_to_remove = user_id
+            break
+    if user_id_to_remove:
+        del user_sockets[user_id_to_remove]
+        print(f"👤 Removed user {user_id_to_remove} from socket mapping")
+
+
+@sio.event
+async def register(sid, data):
+    """Register user with their socket ID"""
+    user_id = data.get('userId')
+    if user_id:
+        user_sockets[user_id] = sid
+        print(f"✅ Registered user {user_id} with socket {sid}")
+        await sio.emit('registered', {'userId': user_id}, to=sid)
+    else:
+        print(f"⚠️ Registration failed: no userId provided")
+
+
+# ====================================================================
 
 
 async def get_db(request: Request):
@@ -223,6 +276,8 @@ async def webhook_received(request: Request):
         data = await request.json()
         print("RAW DATA =", data)
         
+        db = await get_db(request)
+        
         # Extract relevant info and store
         if data.get("entry"):
             for entry in data["entry"]:
@@ -247,40 +302,142 @@ async def webhook_received(request: Request):
                                     message_data["contact"] = value["contacts"][0]
                                     
                                 RECEIVED_MESSAGES.append(message_data)
+                                
+                                # Save incoming message to DB
+                                incoming_msg_doc = {
+                                    "chatId": msg.get("from"),
+                                    "senderId": msg.get("from"),
+                                    "receiverId": settings.WHATSAPP_PHONE_NUMBER_ID,
+                                    "text": msg.get("text", {}).get("body", ""),
+                                    "status": "delivered",  # Incoming messages are already delivered
+                                    "createdAt": datetime.utcnow().isoformat(),
+                                    "updatedAt": datetime.utcnow().isoformat(),
+                                    "whatsappMessageId": msg.get("id"),
+                                }
+                                await db["messages"].insert_one(incoming_msg_doc)
+                                incoming_msg_doc["id"] = str(incoming_msg_doc.pop("_id"))
+                                
+                                # Emit to all connected users (in production, target specific users)
+                                await sio.emit('new_message', incoming_msg_doc)
+                                print(f"📨 Emitted incoming message to all users")
 
                         # Handle Status Updates (Sent, Delivered, Read)
                         if value.get("statuses"):
-                            for status in value["statuses"]:
+                            for status_update in value["statuses"]:
                                 status_data = {
                                     "type": "status",
-                                    "id": status.get("id"),
-                                    "status": status.get("status"),
-                                    "timestamp": status.get("timestamp"),
-                                    "recipient_id": status.get("recipient_id"),
-                                    "raw": status
+                                    "id": status_update.get("id"),
+                                    "status": status_update.get("status"),
+                                    "timestamp": status_update.get("timestamp"),
+                                    "recipient_id": status_update.get("recipient_id"),
+                                    "raw": status_update
                                 }
                                 RECEIVED_MESSAGES.append(status_data)
+                                
+                                # Update message status in database
+                                whatsapp_msg_id = status_update.get("id")
+                                new_status = status_update.get("status")  # sent, delivered, read, failed
+                                
+                                if whatsapp_msg_id and new_status:
+                                    # Find and update the message in DB
+                                    result = await db["messages"].find_one_and_update(
+                                        {"whatsappMessageId": whatsapp_msg_id},
+                                        {
+                                            "$set": {
+                                                "status": new_status,
+                                                "updatedAt": datetime.utcnow().isoformat()
+                                            }
+                                        },
+                                        return_document=True
+                                    )
+                                    
+                                    if result:
+                                        # Emit WebSocket event to the sender
+                                        sender_id = result.get("senderId")
+                                        sender_socket = user_sockets.get(sender_id)
+                                        
+                                        status_event = {
+                                            "messageId": str(result["_id"]),
+                                            "whatsappMessageId": whatsapp_msg_id,
+                                            "status": new_status,
+                                            "timestamp": status_update.get("timestamp")
+                                        }
+                                        
+                                        if sender_socket:
+                                            await sio.emit('message_status_update', status_event, to=sender_socket)
+                                            print(f"✅ Emitted status update to user {sender_id}: {new_status}")
+                                        else:
+                                            # User not connected, but DB is updated (source of truth)
+                                            print(f"⚠️ User {sender_id} not connected, DB updated with status: {new_status}")
 
-                        # Keep only last 100 events
+                        # Keep only last 100 events in memory
                         if len(RECEIVED_MESSAGES) > 100:
                             RECEIVED_MESSAGES.pop(0)
                                 
     except Exception as e:
         print(f"⚠️ Error processing webhook: {e}")
+        import traceback
+        traceback.print_exc()
     
     return {"status": "ok"}
 
 @app.get("/messages")
-async def get_messages(current_user: UserPublic = Depends(get_current_user)):
+async def get_messages(
+    request: Request,
+    chatId: Optional[str] = None,
+    limit: int = 50,
+    current_user: UserPublic = Depends(get_current_user)
+):
+    """
+    Get messages from database for initial load or pagination.
+    After initial load, rely on WebSocket events for real-time updates.
+    """
+    db = await get_db(request)
+    
+    query = {}
+    if chatId:
+        query["chatId"] = chatId
+    
+    # Fetch messages from DB, sorted by creation time (newest first for pagination)
+    cursor = db["messages"].find(query).sort("createdAt", -1).limit(limit)
+    messages = await cursor.to_list(length=limit)
+    
+    # Convert ObjectId to string and format response
+    for msg in messages:
+        msg["id"] = str(msg.pop("_id"))
+    
+    # Reverse to show oldest first in UI
+    messages.reverse()
+    
+    return messages
+
+
+@app.get("/messages/legacy")
+async def get_messages_legacy(current_user: UserPublic = Depends(get_current_user)):
+    """Legacy endpoint returning in-memory messages (for backward compatibility)"""
     return RECEIVED_MESSAGES
 
 # 5) Implement endpoint: POST /send-message
 @app.post("/send-message")
 async def send_message(
-    req: MessageRequest, current_user: UserPublic = Depends(get_current_user)
+    req: MessageRequest, request: Request, current_user: UserPublic = Depends(get_current_user)
 ):
     if not req.phone or not req.message:
         raise HTTPException(status_code=400, detail="Phone and message are required")
+
+    db = await get_db(request)
+    
+    # Create message document for DB
+    message_doc = {
+        "chatId": req.phone,  # Using phone as chatId for simplicity
+        "senderId": current_user.id,
+        "receiverId": req.phone,
+        "text": req.message,
+        "status": "sent",
+        "createdAt": datetime.utcnow().isoformat(),
+        "updatedAt": datetime.utcnow().isoformat(),
+        "whatsappMessageId": None,  # Will be updated after WhatsApp response
+    }
 
     url = f"https://graph.facebook.com/{settings.WHATSAPP_API_VERSION}/{settings.WHATSAPP_PHONE_NUMBER_ID}/messages"
     headers = {
@@ -302,10 +459,58 @@ async def send_message(
         try:
             response = await client.post(url, json=payload, headers=headers)
             response.raise_for_status()
-            return {"success": True, "whatsapp_response": response.json()}
+            whatsapp_response = response.json()
+            
+            # Update message with WhatsApp message ID
+            if whatsapp_response.get("messages"):
+                message_doc["whatsappMessageId"] = whatsapp_response["messages"][0].get("id")
+            
+            # Save message to database
+            result = await db["messages"].insert_one(message_doc)
+            message_id = str(result.inserted_id)
+            
+            # Prepare message for response (remove _id, add id)
+            response_message = {
+                "id": message_id,
+                "chatId": message_doc["chatId"],
+                "senderId": message_doc["senderId"],
+                "receiverId": message_doc["receiverId"],
+                "text": message_doc["text"],
+                "status": message_doc["status"],
+                "createdAt": message_doc["createdAt"],
+                "updatedAt": message_doc["updatedAt"],
+                "whatsappMessageId": message_doc["whatsappMessageId"],
+            }
+            
+            # Emit WebSocket event to receiver (if they have a socket connection)
+            # Note: In real WhatsApp integration, receiverId would be the user's ID, not phone
+            # For now, we emit to the sender to update their UI
+            sender_socket = user_sockets.get(current_user.id)
+            if sender_socket:
+                await sio.emit('new_message', response_message, to=sender_socket)
+                print(f"📨 Emitted new_message to sender {current_user.id}")
+            
+            return {"success": True, "message": response_message, "whatsapp_response": whatsapp_response}
         except httpx.HTTPStatusError as e:
             print(f"Error sending message: {e.response.text}")
-            return {"success": False, "error": "Failed to send message", "details": e.response.json()}
+            # Still save message with failed status
+            message_doc["status"] = "failed"
+            result = await db["messages"].insert_one(message_doc)
+            message_id = str(result.inserted_id)
+            
+            response_message = {
+                "id": message_id,
+                "chatId": message_doc["chatId"],
+                "senderId": message_doc["senderId"],
+                "receiverId": message_doc["receiverId"],
+                "text": message_doc["text"],
+                "status": message_doc["status"],
+                "createdAt": message_doc["createdAt"],
+                "updatedAt": message_doc["updatedAt"],
+                "whatsappMessageId": message_doc["whatsappMessageId"],
+            }
+            
+            return {"success": False, "message": response_message, "error": "Failed to send message", "details": e.response.json()}
         except Exception as e:
             print(f"Unexpected error: {str(e)}")
             return {"success": False, "error": "Unexpected error", "details": {"message": str(e)}}
