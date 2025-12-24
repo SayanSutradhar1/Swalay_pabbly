@@ -103,8 +103,11 @@ export default function TemplatesPage() {
         if (headerComp) {
             if (headerComp.format === 'TEXT' && headerComp.parameter_count) {
                 for (let i = 0; i < headerComp.parameter_count; i++) hParams.push('');
-            } else if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(headerComp.format || '')) {
-                hParams.push(''); // One slot for media URL
+            } else if (['VIDEO', 'DOCUMENT'].includes(headerComp.format || '')) {
+                hParams.push(''); // Media URL for video/document
+            } else if (headerComp.format === 'IMAGE') {
+                // URL is fetched by backend, no user input needed
+                // header params remain empty
             }
         }
         setHeaderParams(hParams);
@@ -133,6 +136,7 @@ export default function TemplatesPage() {
             await sendTemplate({
                 phone: selectedContactPhone,
                 template_name: selectedTemplate.name,
+                template_id: selectedTemplate.id,
                 language_code: selectedTemplate.language,
                 body_parameters: bodyParams,
                 header_parameters: headerParams,

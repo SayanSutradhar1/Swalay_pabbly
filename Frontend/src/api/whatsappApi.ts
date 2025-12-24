@@ -24,6 +24,7 @@ export interface SendMessagePayload {
 export interface SendTemplatePayload {
     phone: string;
     template_name: string;
+    template_id?: string;
     language_code?: string;
     body_parameters?: string[];
     header_parameters?: string[];

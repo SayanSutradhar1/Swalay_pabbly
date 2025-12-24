@@ -40,8 +40,8 @@ export const getTemplate = async (id: string): Promise<Template> => {
 export const createTemplate = async (data: any): Promise<any> => {
     const response = await fetch(`${BACKEND_URL}/templates/create`, {
         method: 'POST',
+        credentials: 'include', // ensure cookies are sent
         headers: {
-        credentials: 'include',
             'Content-Type': 'application/json',
         },
         body: JSON.stringify(data),

@@ -62,15 +62,19 @@ export default function WhatsAppConsole() {
 
             // Parse Header Params
             const headerComponent = template.components.find(c => c.type === 'HEADER');
-            if (headerComponent && headerComponent.format && headerComponent.format !== 'TEXT') {
-                // Media Header (Image, Video, Document) - expects 1 URL param
-                setHeaderParams(['']);
-                setHeaderType(headerComponent.format);
-            } else if (headerComponent && headerComponent.format === 'TEXT') {
+            if (headerComponent && headerComponent.format === 'TEXT') {
                 // Text Header - expects N params
                 const headerCount = headerComponent.parameter_count || 0;
                 setHeaderParams(new Array(headerCount).fill(''));
                 setHeaderType('TEXT');
+            } else if (headerComponent?.format === 'IMAGE') {
+                // Backend fetches image handle; no user input required
+                setHeaderParams([]);
+                setHeaderType('IMAGE');
+            } else if (headerComponent && headerComponent.format) {
+                // Other media types still expect a single URL
+                setHeaderParams(['']);
+                setHeaderType(headerComponent.format);
             } else {
                 setHeaderParams([]);
                 setHeaderType(undefined);
@@ -114,6 +118,7 @@ export default function WhatsAppConsole() {
             await sendTemplate({
                 phone,
                 template_name: selectedTemplate.name,
+                template_id: selectedTemplate.id,
                 language_code: selectedTemplate.language,
                 body_parameters: bodyParams,
                 header_parameters: headerParams,

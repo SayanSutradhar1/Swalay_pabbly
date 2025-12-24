@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     MONGODB_DB_NAME: str = "swalay"
     JWT_SECRET_KEY: str
     JWT_ALGORITHM: str = "HS256"
-    JWT_EXPIRES_IN_MINUTES: int = 60
+    JWT_EXPIRES_IN_MINUTES: int = 600
     COOKIE_SECURE: bool = False
     COOKIE_SAMESITE: str = "lax"
 

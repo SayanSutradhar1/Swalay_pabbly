@@ -74,11 +74,15 @@ export default function ContactsPage() {
         if (!selectedContact || !selectedTemplate) return;
         try {
             const template = templates.find(t => t.name === selectedTemplate);
+            const headerComp = template?.components.find(c => c.type === 'HEADER');
+            const headerType = headerComp?.format;
             await sendTemplate({
                 phone: selectedContact.phone,
                 template_name: selectedTemplate,
+                template_id: template?.id,
                 language_code: template?.language || 'en_US',
-                body_parameters: templateParams
+                body_parameters: templateParams,
+                header_type: headerType
             });
             setIsTemplateDialogOpen(false);
             setSelectedTemplate("");

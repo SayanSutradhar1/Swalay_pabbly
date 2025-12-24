@@ -75,6 +75,9 @@ class TemplateRequest(BaseModel):
     header_parameters: List[str] = []  # For TEXT params or Media URLs
     header_type: Optional[str] = None  # IMAGE, VIDEO, DOCUMENT, TEXT, or None
 
+    # Optional Meta template id (needed for fetching media handles)
+    template_id: Optional[str] = None
+
     # New fields for sending media/location
     media_handle: Optional[str] = None 
     location_latitude: Optional[float] = None
