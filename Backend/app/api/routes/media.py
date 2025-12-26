@@ -57,3 +57,42 @@ async def finish_upload(
             return resp.json()
         except httpx.RequestError as exc:
             raise HTTPException(status_code=500, detail=f"Connection error: {str(exc)}")
+
+
+@router.post("/media/upload")
+async def upload_media(
+    file: UploadFile = File(...),
+    current_user: UserPublic = Depends(get_current_user),
+):
+    """
+    Upload media to WhatsApp API for use in templates.
+    Returns the media ID.
+    """
+    url = f"https://graph.facebook.com/{settings.WHATSAPP_API_VERSION}/{settings.WHATSAPP_PHONE_NUMBER_ID}/media"
+    headers = {"Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN}"}
+    
+    # Determine content type
+    content_type = file.content_type or "application/octet-stream"
+    
+    try:
+        file_content = await file.read()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Failed to read file: {str(exc)}")
+
+    files = {
+        "file": (file.filename, file_content, content_type),
+        "messaging_product": (None, "whatsapp"),
+    }
+
+    async with httpx.AsyncClient() as client:
+        try:
+            resp = await client.post(url, headers=headers, files=files)
+            if resp.status_code not in (200, 201):
+                print(f"Media upload failed: {resp.text}")
+                raise HTTPException(
+                    status_code=resp.status_code,
+                    detail=resp.json().get("error", {}).get("message", "Media upload failed"),
+                )
+            return resp.json()
+        except httpx.RequestError as exc:
+            raise HTTPException(status_code=500, detail=f"Connection error: {str(exc)}")

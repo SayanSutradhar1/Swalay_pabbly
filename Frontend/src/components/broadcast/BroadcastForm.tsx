@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/Badge";
 import TemplateSelectorModal from './TemplateSelectorModal';
 import { ChevronDown, Info, CheckCircle, XCircle, Loader2, X, Plus } from 'lucide-react';
 import { broadcastTemplate } from '@/api/messages';
+import { uploadMedia } from '@/api/whatsappApi';
 
 // Simplified Schema Definition
 const broadcastSchema = z.object({
@@ -32,6 +33,13 @@ export default function BroadcastForm() {
     const [recipientType, setRecipientType] = useState<'list' | 'custom'>('custom');
     const [customNumbers, setCustomNumbers] = useState<string[]>([]);
     const [currentNumberInput, setCurrentNumberInput] = useState("");
+
+    // Template State
+    const [selectedTemplate, setSelectedTemplate] = useState<any>(null);
+    const [bodyParams, setBodyParams] = useState<string[]>([]);
+    const [headerParams, setHeaderParams] = useState<string[]>([]);
+    const [headerType, setHeaderType] = useState<string | undefined>(undefined);
+    const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
     const form = useForm<BroadcastFormValues>({
         resolver: zodResolver(broadcastSchema),
@@ -75,7 +83,35 @@ export default function BroadcastForm() {
         }
     };
 
+    const handleBodyParamChange = (index: number, value: string) => {
+        const newParams = [...bodyParams];
+        newParams[index] = value;
+        setBodyParams(newParams);
+    };
+
+    const handleHeaderParamChange = (index: number, value: string) => {
+        const newParams = [...headerParams];
+        newParams[index] = value;
+        setHeaderParams(newParams);
+    };
+
     const onSubmit = async (data: BroadcastFormValues) => {
+        // Validation
+        if (bodyParams.some(p => !p)) {
+            alert('All body parameters must be filled');
+            return;
+        }
+
+        if (headerType === 'IMAGE') {
+            if (!selectedFile && (!headerParams[0] || !headerParams[0].trim())) {
+                alert('Please upload an image or enter a URL/ID');
+                return;
+            }
+        } else if (headerParams.some(p => !p)) {
+            alert('All header parameters must be filled');
+            return;
+        }
+
         setIsSending(true);
         setBroadcastResults(null);
         try {
@@ -95,16 +131,36 @@ export default function BroadcastForm() {
                     setIsSending(false);
                     return;
                 }
-                // In a real app, we might fetch numbers for this list or send the list ID to backend
                 alert(`Sending to list ${data.contactListId} is not yet implemented in this demo. Please use Custom Numbers.`);
                 setIsSending(false);
                 return;
             }
 
+            let finalHeaderParams = [...headerParams];
+
+            // Handle Image Upload if file selected
+            if (headerType === 'IMAGE' && selectedFile) {
+                try {
+                    const uploadResp = await uploadMedia(selectedFile);
+                    if (uploadResp && uploadResp.id) {
+                        finalHeaderParams = [uploadResp.id];
+                    } else {
+                        throw new Error('Failed to get media ID from upload');
+                    }
+                } catch (uploadError: any) {
+                    alert("Image upload failed: " + uploadError.message);
+                    setIsSending(false);
+                    return;
+                }
+            }
+
             const result = await broadcastTemplate({
                 phone_numbers: numbers,
                 template_name: data.templateName,
-                language_code: "en_US" // Hardcoded for now, should be from template
+                language_code: selectedTemplate?.language || "en_US",
+                body_parameters: bodyParams,
+                header_parameters: finalHeaderParams,
+                header_type: headerType as any
             });
 
             setBroadcastResults(result);
@@ -120,6 +176,32 @@ export default function BroadcastForm() {
     const handleTemplateSelect = (template: any) => {
         setValue("templateId", template.id);
         setValue("templateName", template.name, { shouldValidate: true });
+        setSelectedTemplate(template);
+
+        // Parse Body Params
+        const bodyComponent = template.components.find((c: any) => c.type === 'BODY');
+        const bodyCount = bodyComponent?.parameter_count || 0;
+        setBodyParams(new Array(bodyCount).fill(''));
+
+        // Parse Header Params
+        const headerComponent = template.components.find((c: any) => c.type === 'HEADER');
+        const format = headerComponent?.format?.toUpperCase();
+
+        if (headerComponent && format === 'TEXT') {
+            const headerCount = headerComponent.parameter_count || 0;
+            setHeaderParams(new Array(headerCount).fill(''));
+            setHeaderType('TEXT');
+        } else if (format === 'IMAGE') {
+            setHeaderParams(['']);
+            setHeaderType('IMAGE');
+        } else if (headerComponent && format) {
+            setHeaderParams(['']);
+            setHeaderType(format);
+        } else {
+            setHeaderParams([]);
+            setHeaderType(undefined);
+        }
+        setSelectedFile(null);
     };
 
     return (
@@ -216,7 +298,58 @@ export default function BroadcastForm() {
                             {errors.templateName && <p className="text-xs text-red-500">{errors.templateName.message}</p>}
                         </div>
 
-                        {/* 3. Footer Buttons */}
+                        {/* 3. Template Parameters */}
+                        {selectedTemplate && (
+                            <div className="space-y-6 pt-4 border-t">
+                                {/* Header Parameters */}
+                                {headerParams.length > 0 && (
+                                    <div className="space-y-3">
+                                        <h3 className="text-sm font-medium text-gray-900">Header Parameters ({headerType})</h3>
+
+                                        {headerType === 'IMAGE' && (
+                                            <div className="space-y-2">
+                                                <label className="text-xs text-gray-500">Upload Image</label>
+                                                <input
+                                                    type="file"
+                                                    accept="image/*"
+                                                    onChange={(e) => setSelectedFile(e.target.files ? e.target.files[0] : null)}
+                                                    className="w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                                                />
+                                                <p className="text-xs text-gray-400">Or enter a URL/ID below</p>
+                                            </div>
+                                        )}
+
+                                        {headerParams.map((param, index) => (
+                                            <div key={`header-${index}`}>
+                                                <Input
+                                                    placeholder={headerType === 'TEXT' ? `Header Variable {{${index + 1}}}` : `Media URL/ID`}
+                                                    value={param}
+                                                    onChange={(e) => handleHeaderParamChange(index, e.target.value)}
+                                                />
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+
+                                {/* Body Parameters */}
+                                {bodyParams.length > 0 && (
+                                    <div className="space-y-3">
+                                        <h3 className="text-sm font-medium text-gray-900">Body Parameters</h3>
+                                        {bodyParams.map((param, index) => (
+                                            <div key={`body-${index}`}>
+                                                <Input
+                                                    placeholder={`Body Variable {{${index + 1}}}`}
+                                                    value={param}
+                                                    onChange={(e) => handleBodyParamChange(index, e.target.value)}
+                                                />
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* 4. Footer Buttons */}
                         <div className="flex items-center gap-4 pt-4 border-t">
                             <Button type="submit" className="bg-blue-600 hover:bg-blue-700 px-8" disabled={isSending}>
                                 {isSending ? (
@@ -229,7 +362,7 @@ export default function BroadcastForm() {
                             </Button>
                         </div>
 
-                        {/* 4. Results Display */}
+                        {/* 5. Results Display */}
                         {broadcastResults && (
                             <div className="mt-8 border rounded-lg overflow-hidden">
                                 <div className="bg-gray-50 px-4 py-3 border-b">

@@ -4,10 +4,11 @@ import { PageWrapper } from "@/components/ui/PageWrapper";
 import { Card, CardContent, CardHeader } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Table, TableBody, TableHead, TableHeader, TableRow, TableCell } from "@/components/ui/DataTable";
-import { Plus, RefreshCw } from "lucide-react";
+import { Plus, RefreshCw, Upload } from "lucide-react";
 import { useState, useEffect } from "react";
 import { fetchTemplates, Template, deleteTemplate } from "@/api/templates";
 import { sendTemplate } from "@/api/messages";
+import { uploadMedia } from "@/api/whatsappApi";
 import TemplateRow from "@/components/templates/TemplateRow";
 import TemplateFilters from "@/components/templates/TemplateFilters";
 import { useRouter } from "next/navigation";
@@ -35,6 +36,7 @@ export default function TemplatesPage() {
     const [headerParams, setHeaderParams] = useState<string[]>([]);
     const [bodyParams, setBodyParams] = useState<string[]>([]);
     const [sending, setSending] = useState(false);
+    const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
     // Ideally fetch contacts from API
     const [contacts] = useState([
@@ -94,6 +96,7 @@ export default function TemplatesPage() {
     const handleSendClick = (template: Template) => {
         setSelectedTemplate(template);
         setSelectedContactPhone("");
+        setSelectedFile(null);
 
         // Initialize params based on template components
         const headerComp = template.components.find(c => c.type === 'HEADER');
@@ -129,8 +132,35 @@ export default function TemplatesPage() {
             // Determine header type
             const headerComp = selectedTemplate.components.find(c => c.type === 'HEADER');
             let headerType = undefined;
+            let finalHeaderParams = [...headerParams];
+
             if (headerComp && headerComp.format) {
                 headerType = headerComp.format;
+
+                // Handle Image Upload
+                if (headerType === 'IMAGE') {
+                    if (selectedFile) {
+                        try {
+                            const uploadResp = await uploadMedia(selectedFile);
+                            if (uploadResp && uploadResp.id) {
+                                finalHeaderParams = [uploadResp.id];
+                            } else {
+                                throw new Error('Failed to get media ID from upload');
+                            }
+                        } catch (uploadError: any) {
+                            alert("Image upload failed: " + uploadError.message);
+                            setSending(false);
+                            return;
+                        }
+                    } else {
+                        // If no file selected, we assume they might want to use the default/example if available,
+                        // OR we should enforce upload. The requirement says:
+                        // "If header type is IMAGE and no image is uploaded, show an error message."
+                        alert("Please upload an image for this template.");
+                        setSending(false);
+                        return;
+                    }
+                }
             }
 
             await sendTemplate({
@@ -139,7 +169,7 @@ export default function TemplatesPage() {
                 template_id: selectedTemplate.id,
                 language_code: selectedTemplate.language,
                 body_parameters: bodyParams,
-                header_parameters: headerParams,
+                header_parameters: finalHeaderParams,
                 header_type: headerType
             });
             alert("Template sent successfully!");
@@ -252,6 +282,22 @@ export default function TemplatesPage() {
                                     if (comp.type === 'HEADER') {
                                         if (comp.format === 'TEXT') {
                                             return <div key={idx} className="font-bold mb-2 text-lg">{renderPreviewText(comp.text || '', headerParams)}</div>;
+                                        } else if (comp.format === 'IMAGE') {
+                                            return (
+                                                <div key={idx} className="mb-2">
+                                                    {selectedFile ? (
+                                                        <img
+                                                            src={URL.createObjectURL(selectedFile)}
+                                                            alt="Header Preview"
+                                                            className="w-full h-auto rounded"
+                                                        />
+                                                    ) : (
+                                                        <div className="bg-gray-200 h-32 w-full rounded flex items-center justify-center text-gray-500 text-sm">
+                                                            Image Header
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            );
                                         } else {
                                             return (
                                                 <div key={idx} className="bg-gray-200 h-32 w-full rounded mb-2 flex items-center justify-center text-gray-500 text-sm">
@@ -280,6 +326,24 @@ export default function TemplatesPage() {
                                     return null;
                                 })}
                             </div>
+
+                            {/* Upload Button for Image Header */}
+                            {selectedTemplate?.components.find(c => c.type === 'HEADER' && c.format === 'IMAGE') && (
+                                <div className="mt-4 flex justify-center">
+                                    <label className="cursor-pointer">
+                                        <input
+                                            type="file"
+                                            accept="image/*"
+                                            className="hidden"
+                                            onChange={(e) => setSelectedFile(e.target.files ? e.target.files[0] : null)}
+                                        />
+                                        <div className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 text-sm font-medium text-gray-700 transition-colors">
+                                            <Upload className="w-4 h-4" />
+                                            {selectedFile ? "Change Image" : "Upload Image"}
+                                        </div>
+                                    </label>
+                                </div>
+                            )}
                         </div>
 
                         {/* Right Column: Inputs */}

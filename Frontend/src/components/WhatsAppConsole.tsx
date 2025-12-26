@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { getTemplates, sendMessage, sendTemplate, getHealth, Template } from '../api/whatsappApi';
+import { getTemplates, sendMessage, sendTemplate, getHealth, uploadMedia, Template } from '../api/whatsappApi';
 
 interface LogItem {
     type: 'template' | 'message' | 'error' | 'success';
@@ -17,6 +17,7 @@ export default function WhatsAppConsole() {
     const [bodyParams, setBodyParams] = useState<string[]>([]);
     const [headerParams, setHeaderParams] = useState<string[]>([]);
     const [headerType, setHeaderType] = useState<string | undefined>(undefined);
+    const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [logs, setLogs] = useState<LogItem[]>([]);
     const [loading, setLoading] = useState(false);
     const [backendStatus, setBackendStatus] = useState<'checking' | 'connected' | 'disconnected'>('checking');
@@ -55,6 +56,10 @@ export default function WhatsAppConsole() {
         setSelectedTemplate(template);
 
         if (template) {
+            // Debug log
+            console.log('Selected Template:', template);
+            addLog('template', `Selected: ${template.name}, Components: ${JSON.stringify(template.components.map(c => ({ type: c.type, format: c.format })))}`);
+
             // Parse Body Params
             const bodyComponent = template.components.find(c => c.type === 'BODY');
             const bodyCount = bodyComponent?.parameter_count || 0;
@@ -62,28 +67,32 @@ export default function WhatsAppConsole() {
 
             // Parse Header Params
             const headerComponent = template.components.find(c => c.type === 'HEADER');
-            if (headerComponent && headerComponent.format === 'TEXT') {
+            const format = headerComponent?.format?.toUpperCase();
+
+            if (headerComponent && format === 'TEXT') {
                 // Text Header - expects N params
                 const headerCount = headerComponent.parameter_count || 0;
                 setHeaderParams(new Array(headerCount).fill(''));
                 setHeaderType('TEXT');
-            } else if (headerComponent?.format === 'IMAGE') {
-                // Backend fetches image handle; no user input required
-                setHeaderParams([]);
+            } else if (format === 'IMAGE') {
+                // Image Header - allow user to upload or provide URL
+                setHeaderParams(['']);
                 setHeaderType('IMAGE');
-            } else if (headerComponent && headerComponent.format) {
+            } else if (headerComponent && format) {
                 // Other media types still expect a single URL
                 setHeaderParams(['']);
-                setHeaderType(headerComponent.format);
+                setHeaderType(format);
             } else {
                 setHeaderParams([]);
                 setHeaderType(undefined);
             }
+            setSelectedFile(null);
 
         } else {
             setBodyParams([]);
             setHeaderParams([]);
             setHeaderType(undefined);
+            setSelectedFile(null);
         }
     };
 
@@ -108,24 +117,45 @@ export default function WhatsAppConsole() {
             addLog('error', 'All body parameters must be filled');
             return;
         }
-        if (headerParams.some(p => !p)) {
+
+        // Validation for Header Params
+        if (headerType === 'IMAGE') {
+            if (!selectedFile && (!headerParams[0] || !headerParams[0].trim())) {
+                addLog('error', 'Please upload an image or enter a URL/ID');
+                return;
+            }
+        } else if (headerParams.some(p => !p)) {
             addLog('error', 'All header parameters must be filled');
             return;
         }
 
         setLoading(true);
         try {
+            let finalHeaderParams = [...headerParams];
+
+            // Handle Image Upload if file selected
+            if (headerType === 'IMAGE' && selectedFile) {
+                addLog('template', `Uploading image: ${selectedFile.name}...`);
+                const uploadResp = await uploadMedia(selectedFile);
+                if (uploadResp && uploadResp.id) {
+                    addLog('success', `Image uploaded. ID: ${uploadResp.id}`);
+                    finalHeaderParams = [uploadResp.id];
+                } else {
+                    throw new Error('Failed to get media ID from upload');
+                }
+            }
+
             await sendTemplate({
                 phone,
                 template_name: selectedTemplate.name,
                 template_id: selectedTemplate.id,
                 language_code: selectedTemplate.language,
                 body_parameters: bodyParams,
-                header_parameters: headerParams,
+                header_parameters: finalHeaderParams,
                 header_type: headerType
             });
             addLog('success', `Sent template "${selectedTemplate.name}" to ${phone}`);
-            addLog('template', `Template: ${selectedTemplate.name}, Body: [${bodyParams.join(', ')}], Header: [${headerParams.join(', ')}]`);
+            addLog('template', `Template: ${selectedTemplate.name}, Body: [${bodyParams.join(', ')}], Header: [${finalHeaderParams.join(', ')}]`);
         } catch (error: any) {
             addLog('error', error.message || 'Failed to send template');
         } finally {
@@ -162,7 +192,7 @@ export default function WhatsAppConsole() {
                     <span className="font-semibold text-slate-700">Backend Status</span>
                     <div className="flex items-center space-x-2">
                         <span className={`h-3 w-3 rounded-full ${backendStatus === 'connected' ? 'bg-green-500' :
-                                backendStatus === 'disconnected' ? 'bg-red-500' : 'bg-yellow-500'
+                            backendStatus === 'disconnected' ? 'bg-red-500' : 'bg-yellow-500'
                             }`}></span>
                         <span className="text-sm text-slate-600 capitalize">{backendStatus}</span>
                     </div>

@@ -111,3 +111,19 @@ export const finishUpload = async (sessionId: string, file: File) => {
     }
     return response.json();
 };
+
+export const uploadMedia = async (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await fetch(`${BACKEND_URL}/media/upload`, {
+        method: 'POST',
+        body: formData,
+        credentials: 'include',
+    });
+    if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Failed to upload media');
+    }
+    return response.json();
+};

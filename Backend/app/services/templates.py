@@ -55,8 +55,19 @@ async def send_template_message(req: TemplateRequest):
             elif header_type == "IMAGE":
                 if not req.template_id:
                     raise HTTPException(status_code=400, detail="template_id is required for IMAGE headers")
-                image_url = await fetch_header_image_url(req.template_id, client)
-                header_params.append({"type": "image", "image": {"link": image_url}})
+                
+                # Check if user provided a specific image (URL or ID)
+                if req.header_parameters:
+                    param = req.header_parameters[0]
+                    if param.startswith("http"):
+                        header_params.append({"type": "image", "image": {"link": param}})
+                    else:
+                        # Assume it's a media ID
+                        header_params.append({"type": "image", "image": {"id": param}})
+                else:
+                    # Fallback to example image from template definition
+                    image_url = await fetch_header_image_url(req.template_id, client)
+                    header_params.append({"type": "image", "image": {"link": image_url}})
             elif header_type == "VIDEO" and req.header_parameters:
                 header_params.append({"type": "video", "video": {"link": req.header_parameters[0]}})
             elif header_type == "DOCUMENT" and req.header_parameters:
