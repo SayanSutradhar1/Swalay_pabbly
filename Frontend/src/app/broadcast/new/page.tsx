@@ -9,14 +9,16 @@ import { ChevronLeft } from "lucide-react";
 import { useGetTemplates, useCreateBroadcast } from "@/hooks/useApi";
 import TemplatePreview from "@/components/templates/TemplatePreview";
 import { uploadMedia } from "@/api/whatsappApi";
+import { getContactLists, getContactsInList } from "@/api/contactLists";
 
 export default function NewBroadcastPage() {
     const router = useRouter();
     const [name, setName] = useState("");
 
-    // phones list inputs
-    const [phoneInput, setPhoneInput] = useState("");
-    const [phones, setPhones] = useState<string[]>([]);
+    // contact list selection
+    const [contactLists, setContactLists] = useState<Array<{ id: string; name: string; contact_count?: number }>>([]);
+    const [selectedListId, setSelectedListId] = useState<string>("");
+    const [listContacts, setListContacts] = useState<Array<{ id: string; name: string; phone: string }>>([]);
 
     // templates
     const { data: templates } = useGetTemplates();
@@ -32,16 +34,17 @@ export default function NewBroadcastPage() {
     const [submitting, setSubmitting] = useState(false);
     const { mutate: create } = useCreateBroadcast();
 
-    const addPhone = () => {
-        const p = phoneInput.trim();
-        if (!p) return;
-        setPhones((prev) => [...prev, p]);
-        setPhoneInput("");
-    };
+    useEffect(() => {
+        getContactLists().then((res) => setContactLists(res.lists));
+    }, []);
 
-    const removePhone = (idx: number) => {
-        setPhones((prev) => prev.filter((_, i) => i !== idx));
-    };
+    useEffect(() => {
+        if (!selectedListId) {
+            setListContacts([]);
+            return;
+        }
+        getContactsInList(selectedListId).then(setListContacts);
+    }, [selectedListId]);
 
     // whenever selectedTemplate changes, reset params
     useEffect(() => {
@@ -81,8 +84,8 @@ export default function NewBroadcastPage() {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!name || phones.length === 0 || !selectedTemplate) {
-            alert('Please provide a name, at least one phone, and select a template');
+        if (!name || !selectedTemplate || listContacts.length === 0) {
+            alert('Please provide a name, select a contact list with contacts, and choose a template');
             return;
         }
 
@@ -125,7 +128,7 @@ export default function NewBroadcastPage() {
 
             const payload = {
                 name,
-                phones,
+                phones: listContacts.map((c) => c.phone),
                 template_name: selectedTemplate.name,
                 template_id: selectedTemplate.id,
                 language_code: selectedTemplate.language,
@@ -207,20 +210,35 @@ export default function NewBroadcastPage() {
                             <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="My broadcast" />
                         </div>
 
-                        <div>
-                            <label className="text-sm font-medium">Recipients</label>
-                            <div className="flex gap-2">
-                                <Input placeholder="Enter phone number" value={phoneInput} onChange={(e) => setPhoneInput(e.target.value)} />
-                                <Button type="button" onClick={addPhone}>Add</Button>
-                            </div>
-                            <div className="mt-3 space-y-1">
-                                {phones.map((p, idx) => (
-                                    <div key={idx} className="flex items-center justify-between gap-2 border rounded-md px-3 py-2">
-                                        <div className="text-sm">{p}</div>
-                                        <Button variant="ghost" size="sm" onClick={() => removePhone(idx)}>Remove</Button>
-                                    </div>
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium">Recipients (Contact List)</label>
+                            <select
+                                className="flex h-10 w-full rounded-md border border-input px-3"
+                                value={selectedListId}
+                                onChange={(e) => setSelectedListId(e.target.value)}
+                            >
+                                <option value="">Select a contact list...</option>
+                                {contactLists.map((l) => (
+                                    <option key={l.id} value={l.id}>{l.name} ({l.contact_count ?? 0})</option>
                                 ))}
-                                <p className="text-xs text-gray-500">You can add multiple recipients. Use E.164 format where possible.</p>
+                            </select>
+                            <div className="rounded-md border bg-gray-50/60 p-3 text-sm space-y-2">
+                                <div className="flex items-center justify-between">
+                                    <span className="font-medium">Contacts in list</span>
+                                    <span className="text-xs text-gray-500">{listContacts.length} selected</span>
+                                </div>
+                                <div className="max-h-48 overflow-y-auto space-y-1">
+                                    {listContacts.length === 0 ? (
+                                        <p className="text-xs text-gray-500">No contacts loaded. Choose a list with contacts.</p>
+                                    ) : (
+                                        listContacts.map((c) => (
+                                            <div key={c.id} className="flex justify-between border rounded px-2 py-1">
+                                                <span>{c.name || c.phone}</span>
+                                                <span className="text-xs text-gray-500">{c.phone}</span>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
                             </div>
                         </div>
 
