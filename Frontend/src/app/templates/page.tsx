@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Table, TableBody, TableHead, TableHeader, TableRow, TableCell } from "@/components/ui/DataTable";
 import { Plus, RefreshCw, Upload, FileText, Video } from "lucide-react";
 import { useState, useEffect } from "react";
-import { fetchTemplates, Template, deleteTemplate } from "@/api/templates";
+import { fetchTemplates, Template, deleteTemplate, syncTemplates } from "@/api/templates";
 import { sendTemplate } from "@/api/messages";
 import { uploadMedia } from "@/api/whatsappApi";
 import TemplateRow from "@/components/templates/TemplateRow";
@@ -21,7 +21,8 @@ export default function TemplatesPage() {
     const router = useRouter();
     const [templates, setTemplates] = useState<Template[]>([]);
     const [loading, setLoading] = useState(false);
-    const [refreshing, setRefreshing] = useState(false);
+    const [syncing, setSyncing] = useState(false);
+    const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState("All");
     const [searchQuery, setSearchQuery] = useState("");
 
@@ -56,7 +57,8 @@ export default function TemplatesPage() {
         setLoading(true);
         try {
             const data = await fetchTemplates();
-            setTemplates(data);
+            setTemplates(data.templates);
+            setLastSyncedAt(data.last_synced_at);
         } catch (error) {
             console.error("Failed to load templates", error);
         } finally {
@@ -64,14 +66,16 @@ export default function TemplatesPage() {
         }
     };
 
-    const handleRefresh = async () => {
-        setRefreshing(true);
+    const handleSync = async () => {
+        setSyncing(true);
         try {
+            await syncTemplates();
             await loadTemplates();
         } catch (error) {
-            console.error("Failed to refresh templates", error);
+            console.error("Failed to sync templates", error);
+            alert("Failed to sync templates");
         } finally {
-            setRefreshing(false);
+            setSyncing(false);
         }
     };
 
@@ -209,14 +213,33 @@ export default function TemplatesPage() {
         }
     };
 
+    const formatSyncTime = (dateString: string | null) => {
+        if (!dateString) return 'Never';
+        const date = new Date(dateString);
+        const now = new Date();
+        const diffMs = now.getTime() - date.getTime();
+        const diffMins = Math.floor(diffMs / 60000);
+        
+        if (diffMins < 1) return 'Just now';
+        if (diffMins < 60) return `${diffMins} min ago`;
+        const diffHours = Math.floor(diffMins / 60);
+        if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+        return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+    };
+
     return (
         <PageWrapper
             title="Templates"
             actions={
-                <div className="flex gap-2">
-                    <Button variant="outline" onClick={handleRefresh} disabled={refreshing}>
-                        <RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-                        {refreshing ? "Refreshing..." : "Refresh"}
+                <div className="flex gap-2 items-center">
+                    {lastSyncedAt && (
+                        <span className="text-xs text-gray-500 mr-2">
+                            Last synced: {formatSyncTime(lastSyncedAt)}
+                        </span>
+                    )}
+                    <Button variant="outline" onClick={handleSync} disabled={syncing}>
+                        <RefreshCw className={`mr-2 h-4 w-4 ${syncing ? "animate-spin" : ""}`} />
+                        {syncing ? "Syncing..." : "Sync"}
                     </Button>
                     <Button onClick={handleAddTemplate}>
                         <Plus className="mr-2 h-4 w-4" /> Add Template

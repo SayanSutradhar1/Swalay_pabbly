@@ -39,7 +39,7 @@ export default function ContactsPage() {
     const loadTemplates = async () => {
         try {
             const data = await fetchTemplates();
-            setTemplates(data.filter(t => t.status === 'APPROVED'));
+            setTemplates(data.templates.filter(t => t.status === 'APPROVED'));
         } catch (error) {
             console.error("Failed to load templates", error);
         }

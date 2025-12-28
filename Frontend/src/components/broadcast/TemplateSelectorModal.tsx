@@ -30,7 +30,7 @@ export default function TemplateSelectorModal({ open, onOpenChange, onSelect }: 
         try {
             const data = await fetchTemplates();
             // Filter only approved templates if needed, or show all
-            setTemplates(data.filter(t => t.status === 'APPROVED'));
+            setTemplates(data.templates.filter(t => t.status === 'APPROVED'));
         } catch (err: any) {
             setError(err.message || "Failed to load templates");
         } finally {

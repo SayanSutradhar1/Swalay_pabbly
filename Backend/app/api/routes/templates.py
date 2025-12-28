@@ -1,7 +1,9 @@
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
+from datetime import datetime
 
 from app.core.security import get_current_user
+from app.db.mongo import get_db
 from app.services.templates import send_template_message
 from config import settings
 from models import TemplateCreate, TemplateRequest, UserPublic
@@ -9,8 +11,8 @@ from models import TemplateCreate, TemplateRequest, UserPublic
 router = APIRouter(tags=["templates"])
 
 
-@router.get("/templates")
-async def get_templates(current_user: UserPublic = Depends(get_current_user)):
+async def sync_templates_from_meta(db):
+    """Fetch templates from Meta API and store/update in MongoDB"""
     url = f"https://graph.facebook.com/{settings.WHATSAPP_API_VERSION}/{settings.WHATSAPP_WABA_ID}/message_templates"
     headers = {"Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN}"}
 
@@ -20,13 +22,22 @@ async def get_templates(current_user: UserPublic = Depends(get_current_user)):
             response.raise_for_status()
             data = response.json()
 
-            templates = []
+            templates_collection = db["templates"]
+            synced_count = 0
+            current_time = datetime.utcnow()
+
+            # Get list of current template IDs from Meta
+            meta_template_ids = set()
+
             for item in data.get("data", []):
+                meta_template_id = item.get("id")
+                meta_template_ids.add(meta_template_id)
+
                 template_struct = {
                     "name": item.get("name"),
                     "language": item.get("language"),
                     "category": item.get("category"),
-                    "id": item.get("id"),
+                    "meta_id": meta_template_id,
                     "status": item.get("status"),
                     "components": [],
                 }
@@ -53,14 +64,77 @@ async def get_templates(current_user: UserPublic = Depends(get_current_user)):
                         buttons = component.get("buttons", [])
                         template_struct["components"].append({"type": "BUTTONS", "buttons": buttons})
 
-                templates.append(template_struct)
-            return templates
+                # Upsert template (update if exists, insert if new)
+                await templates_collection.update_one(
+                    {"meta_id": meta_template_id},
+                    {
+                        "$set": {
+                            **template_struct,
+                            "last_synced_at": current_time,
+                        },
+                        "$setOnInsert": {"created_at": current_time}
+                    },
+                    upsert=True
+                )
+                synced_count += 1
+
+            # Delete templates that no longer exist in Meta
+            delete_result = await templates_collection.delete_many(
+                {"meta_id": {"$nin": list(meta_template_ids)}}
+            )
+
+            return {
+                "synced": synced_count,
+                "deleted": delete_result.deleted_count,
+                "last_synced_at": current_time.isoformat()
+            }
+
         except httpx.HTTPStatusError as exc:
-            print(f"Error fetching templates: {exc.response.text}")
-            raise HTTPException(status_code=500, detail="Failed to fetch templates")
+            print(f"Error syncing templates: {exc.response.text}")
+            raise HTTPException(status_code=500, detail="Failed to sync templates from Meta")
         except Exception as exc:
-            print(f"Unexpected error: {str(exc)}")
+            print(f"Unexpected error during sync: {str(exc)}")
             raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/templates/sync")
+async def sync_templates(current_user: UserPublic = Depends(get_current_user), db = Depends(get_db)):
+    """Manually trigger sync from Meta API to database"""
+    result = await sync_templates_from_meta(db)
+    return {"success": True, "message": "Templates synced successfully", "data": result}
+
+
+@router.get("/templates")
+async def get_templates(current_user: UserPublic = Depends(get_current_user), db = Depends(get_db)):
+    """Get templates from database cache"""
+    templates_collection = db["templates"]
+    
+    # Get all templates from DB
+    cursor = templates_collection.find({})
+    templates = await cursor.to_list(length=None)
+    
+    # Get the most recent sync time
+    last_synced_at = None
+    if templates:
+        sorted_templates = sorted(templates, key=lambda x: x.get("last_synced_at", datetime.min), reverse=True)
+        last_synced_at = sorted_templates[0].get("last_synced_at")
+    
+    # Format response
+    result = []
+    for template in templates:
+        result.append({
+            "name": template.get("name"),
+            "language": template.get("language"),
+            "category": template.get("category"),
+            "id": template.get("meta_id"),
+            "status": template.get("status"),
+            "components": template.get("components", []),
+        })
+    
+    return {
+        "templates": result,
+        "last_synced_at": last_synced_at.isoformat() if last_synced_at else None
+    }
 
 
 @router.get("/templates/{template_id}")
@@ -82,7 +156,7 @@ async def get_template(template_id: str, current_user: UserPublic = Depends(get_
 
 
 @router.post("/templates/create")
-async def create_template(req: TemplateCreate, current_user: UserPublic = Depends(get_current_user)):
+async def create_template(req: TemplateCreate, current_user: UserPublic = Depends(get_current_user), db = Depends(get_db)):
     url = f"https://graph.facebook.com/{settings.WHATSAPP_API_VERSION}/{settings.WHATSAPP_WABA_ID}/message_templates"
     headers = {"Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN}", "Content-Type": "application/json"}
 
@@ -121,6 +195,12 @@ async def create_template(req: TemplateCreate, current_user: UserPublic = Depend
             data = {}
 
         if response.status_code in (200, 201):
+            # Sync templates after successful creation
+            try:
+                await sync_templates_from_meta(db)
+            except Exception as sync_error:
+                print(f"Warning: Template created but sync failed: {str(sync_error)}")
+            
             return {"success": True, "message": "Template submitted successfully", "data": data}
 
         if "error" in data:
@@ -132,7 +212,7 @@ async def create_template(req: TemplateCreate, current_user: UserPublic = Depend
 
 
 @router.delete("/templates")
-async def delete_template(name: str, current_user: UserPublic = Depends(get_current_user)):
+async def delete_template(name: str, current_user: UserPublic = Depends(get_current_user), db = Depends(get_db)):
     url = f"https://graph.facebook.com/{settings.WHATSAPP_API_VERSION}/{settings.WHATSAPP_WABA_ID}/message_templates"
     headers = {"Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN}"}
     params = {"name": name}
@@ -148,6 +228,12 @@ async def delete_template(name: str, current_user: UserPublic = Depends(get_curr
                         data = response.json()
                     except Exception:
                         pass
+
+                # Sync templates after successful deletion
+                try:
+                    await sync_templates_from_meta(db)
+                except Exception as sync_error:
+                    print(f"Warning: Template deleted but sync failed: {str(sync_error)}")
 
                 return {"success": True, "message": "Template deleted successfully", "data": data}
 

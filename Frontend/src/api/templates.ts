@@ -17,12 +17,28 @@ export interface Template {
     components: TemplateComponent[];
 }
 
-export const fetchTemplates = async (): Promise<Template[]> => {
+export interface TemplatesResponse {
+    templates: Template[];
+    last_synced_at: string | null;
+}
+
+export const fetchTemplates = async (): Promise<TemplatesResponse> => {
     const response = await fetch(`${BACKEND_URL}/templates`, {
         credentials: 'include',
     });
     if (!response.ok) {
         throw new Error('Failed to fetch templates');
+    }
+    return response.json();
+};
+
+export const syncTemplates = async (): Promise<{ success: boolean; message: string; data: any }> => {
+    const response = await fetch(`${BACKEND_URL}/templates/sync`, {
+        method: 'POST',
+        credentials: 'include',
+    });
+    if (!response.ok) {
+        throw new Error('Failed to sync templates');
     }
     return response.json();
 };

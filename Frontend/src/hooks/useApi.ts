@@ -28,7 +28,7 @@ export const useGetTemplates = () => {
 
     useEffect(() => {
         let mounted = true;
-        fetchTemplates().then((t) => { if (mounted) setData(t); }).catch(e => { if (mounted) setError(e); }).finally(() => mounted && setLoading(false));
+        fetchTemplates().then((response) => { if (mounted) setData(response.templates); }).catch(e => { if (mounted) setError(e); }).finally(() => mounted && setLoading(false));
         return () => { mounted = false; };
     }, []);
 

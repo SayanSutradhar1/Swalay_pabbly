@@ -96,3 +96,15 @@ class BroadcastRequest(BaseModel):
     header_type: Optional[str] = None
 
 
+class TemplateCached(BaseModel):
+    """Cached template model stored in MongoDB"""
+    meta_id: str  # Template ID from Meta
+    name: str
+    language: str
+    category: str
+    status: str
+    components: List[dict]  # Store full component structure
+    last_synced_at: datetime
+    created_at: Optional[datetime] = None
+
+
