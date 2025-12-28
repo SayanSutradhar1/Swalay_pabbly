@@ -8,6 +8,7 @@ import { useState, useEffect } from "react";
 import { ChevronLeft } from "lucide-react";
 import { useGetTemplates, useCreateBroadcast } from "@/hooks/useApi";
 import TemplatePreview from "@/components/templates/TemplatePreview";
+import { uploadMedia } from "@/api/whatsappApi";
 
 export default function NewBroadcastPage() {
     const router = useRouter();
@@ -25,6 +26,8 @@ export default function NewBroadcastPage() {
     // parameters derived from template
     const [headerParams, setHeaderParams] = useState<string[]>([]);
     const [bodyParams, setBodyParams] = useState<string[]>([]);
+    const [headerType, setHeaderType] = useState<string | undefined>(undefined);
+    const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
     const [submitting, setSubmitting] = useState(false);
     const { mutate: create } = useCreateBroadcast();
@@ -45,23 +48,35 @@ export default function NewBroadcastPage() {
         if (!selectedTemplate) {
             setHeaderParams([]);
             setBodyParams([]);
+            setHeaderType(undefined);
+            setSelectedFile(null);
             return;
         }
 
         let hCount = 0;
         let bCount = 0;
+        let hType: string | undefined = undefined;
 
         for (const comp of selectedTemplate.components || []) {
-            if (comp.type === 'HEADER' && comp.format === 'TEXT' && comp.parameter_count) {
-                hCount = comp.parameter_count;
+            if (comp.type === 'HEADER') {
+                const format = comp.format?.toUpperCase();
+                hType = format;
+                
+                if (format === 'TEXT' && comp.parameter_count) {
+                    hCount = comp.parameter_count;
+                } else if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(format || '')) {
+                    hCount = 1; // Media types need one parameter (URL or ID)
+                }
             }
             if (comp.type === 'BODY' && comp.parameter_count) {
                 bCount = comp.parameter_count;
             }
         }
 
+        setHeaderType(hType);
         setHeaderParams(Array(hCount).fill(""));
         setBodyParams(Array(bCount).fill(""));
+        setSelectedFile(null);
     }, [selectedTemplate]);
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -71,14 +86,40 @@ export default function NewBroadcastPage() {
             return;
         }
 
+        // Validate header params for media types
+        if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(headerType || '')) {
+            if (!selectedFile && (!headerParams[0] || !headerParams[0].trim())) {
+                alert(`Please upload a ${headerType?.toLowerCase()} or enter a URL/ID`);
+                return;
+            }
+        }
+
         setSubmitting(true);
         try {
             // Determine header type from the selected template (if any)
-            let headerType: string | null = null;
+            let headerTypeToSend: string | null = null;
             for (const comp of selectedTemplate.components || []) {
                 if (comp.type === 'HEADER') {
-                    headerType = comp.format || 'TEXT';
+                    headerTypeToSend = comp.format || 'TEXT';
                     break;
+                }
+            }
+
+            let finalHeaderParams = [...headerParams];
+
+            // Handle Media Upload if file selected
+            if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(headerType || '') && selectedFile) {
+                try {
+                    const uploadResp = await uploadMedia(selectedFile);
+                    if (uploadResp && uploadResp.id) {
+                        finalHeaderParams = [uploadResp.id];
+                    } else {
+                        throw new Error('Failed to get media ID from upload');
+                    }
+                } catch (uploadError: any) {
+                    alert(`${headerType} upload failed: ` + uploadError.message);
+                    setSubmitting(false);
+                    return;
                 }
             }
 
@@ -88,8 +129,8 @@ export default function NewBroadcastPage() {
                 template_name: selectedTemplate.name,
                 template_id: selectedTemplate.id,
                 language_code: selectedTemplate.language,
-                header_type: headerType,
-                header_parameters: headerParams.filter(Boolean),
+                header_type: headerTypeToSend,
+                header_parameters: finalHeaderParams.filter(Boolean),
                 body_parameters: bodyParams.filter(Boolean),
             };
 
@@ -199,11 +240,39 @@ export default function NewBroadcastPage() {
 
                                 {headerParams.length > 0 && (
                                     <div className="space-y-2">
-                                        <label className="text-xs font-medium text-gray-500 uppercase">Header Parameters</label>
+                                        <label className="text-xs font-medium text-gray-500 uppercase">
+                                            Header Parameters {headerType && `(${headerType})`}
+                                        </label>
+                                        
+                                        {['IMAGE', 'VIDEO', 'DOCUMENT'].includes(headerType || '') && (
+                                            <div className="space-y-2">
+                                                <label className="text-xs text-gray-500">Upload {headerType}</label>
+                                                <input
+                                                    type="file"
+                                                    accept={
+                                                        headerType === 'IMAGE' ? "image/*" :
+                                                            headerType === 'VIDEO' ? "video/*" :
+                                                                headerType === 'DOCUMENT' ? ".pdf,.doc,.docx,.ppt,.pptx,.txt,.xls,.xlsx" :
+                                                                    undefined
+                                                    }
+                                                    onChange={(e) => setSelectedFile(e.target.files ? e.target.files[0] : null)}
+                                                    className="w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                                                />
+                                                {selectedFile && (
+                                                    <p className="text-xs text-green-600">✓ {selectedFile.name}</p>
+                                                )}
+                                                <p className="text-xs text-gray-400">Or enter a URL/ID below</p>
+                                            </div>
+                                        )}
+                                        
                                         {headerParams.map((val, idx) => (
                                             <Input
                                                 key={`h-${idx}`}
-                                                placeholder={`Header Param {{${idx + 1}}}`}
+                                                placeholder={
+                                                    headerType === 'TEXT' 
+                                                        ? `Header Param {{${idx + 1}}}`
+                                                        : `Media URL/ID`
+                                                }
                                                 value={val}
                                                 onChange={(e) => setHeaderParams(prev => { const copy = [...prev]; copy[idx] = e.target.value; return copy; })}
                                             />
