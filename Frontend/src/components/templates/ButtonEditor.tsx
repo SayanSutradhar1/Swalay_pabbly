@@ -69,16 +69,41 @@ export default function ButtonEditor({ index, control, remove, mode, errors }: B
                     render={({ field: typeField }) => {
                         if (typeField.value === "URL") {
                             return (
-                                <Controller
-                                    control={control}
-                                    name={`buttons.${index}.url`}
-                                    render={({ field }) => (
-                                        <Input
-                                            {...field}
-                                            placeholder="https://example.com"
-                                        />
-                                    )}
-                                />
+                                <div className="space-y-2">
+                                    <Controller
+                                        control={control}
+                                        name={`buttons.${index}.url`}
+                                        render={({ field }) => (
+                                            <Input
+                                                {...field}
+                                                placeholder="https://example.com"
+                                            />
+                                        )}
+                                    />
+                                    {/* Show example input if URL contains {{1}} */}
+                                    <Controller
+                                        control={control}
+                                        name={`buttons.${index}.url`}
+                                        render={({ field }) => {
+                                            const hasVariable = field.value?.includes("{{1}}");
+                                            if (!hasVariable) return null;
+                                            
+                                            return (
+                                                <Controller
+                                                    control={control}
+                                                    name={`buttons.${index}.example.0`}
+                                                    render={({ field: exampleField }) => (
+                                                        <Input
+                                                            {...exampleField}
+                                                            placeholder="URL Example (e.g. summer2023)"
+                                                            className="text-sm"
+                                                        />
+                                                    )}
+                                                />
+                                            );
+                                        }}
+                                    />
+                                </div>
                             );
                         }
                         if (typeField.value === "PHONE_NUMBER") {

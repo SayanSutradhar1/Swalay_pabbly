@@ -21,6 +21,14 @@ export const ButtonSchema = z.object({
     url: z.string().url("Invalid URL").optional(),
     phone_number: z.string().optional(),
     example: z.array(z.string()).optional(),
+}).superRefine((data, ctx) => {
+    if (data.type === "URL" && data.url?.includes("{{1}}") && (!data.example || data.example.length === 0 || !data.example[0])) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "URL example is required when using variables",
+            path: ["example", 0],
+        });
+    }
 });
 
 export const CarouselCardSchema = z.object({

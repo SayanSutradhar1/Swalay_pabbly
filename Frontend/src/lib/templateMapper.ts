@@ -66,6 +66,9 @@ export const mapFormToPayload = (data: TemplateFormData) => {
 
                 if (b.type === "URL") {
                     btn.url = b.url;
+                    if (b.example && b.example.length > 0) {
+                        btn.example = b.example;
+                    }
                 }
 
                 if (b.type === "PHONE_NUMBER") {
