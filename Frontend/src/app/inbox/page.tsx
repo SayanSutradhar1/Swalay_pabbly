@@ -281,13 +281,6 @@ export default function InboxPage() {
                                     </span>
                                 </div>
                                 <p className="text-sm text-gray-500 truncate">{conv.lastMessage}</p>
-                                <div className="flex items-center gap-2 mt-1">
-                                    {!conv.hasUserResponded && (
-                                        <span className="text-xs px-2 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-200 rounded-full">
-                                            Awaiting response
-                                        </span>
-                                    )}
-                                </div>
                             </div>
                         ))}
                         {conversations.length === 0 && !loading && (
@@ -314,12 +307,6 @@ export default function InboxPage() {
                                         <p className="text-xs text-gray-500 truncate">{selectedContactId}</p>
                                     </div>
                                 </div>
-                                {!selectedConversation?.hasUserResponded && (
-                                    <div className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 px-2 py-1 rounded">
-                                        <Lock className="h-3 w-3" />
-                                        Awaiting response
-                                    </div>
-                                )}
                             </div>
 
                             <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50/50 dark:bg-gray-900/50 min-h-0">
@@ -352,33 +339,26 @@ export default function InboxPage() {
                             </div>
 
                             <div className="p-4 border-t bg-white dark:bg-gray-950 flex-shrink-0">
-                                {!selectedConversation?.hasUserResponded ? (
-                                    <div className="text-center text-sm text-gray-500 py-2 bg-amber-50 dark:bg-amber-900/20 rounded-lg">
-                                        <Lock className="h-4 w-4 inline mr-2" />
-                                        Typing is disabled until the contact responds
-                                    </div>
-                                ) : (
-                                    <div className="flex gap-2">
-                                        <Input
-                                            value={messageText}
-                                            onChange={(e) => setMessageText(e.target.value)}
-                                            onKeyDown={(e) => e.key === 'Enter' && !sendingMessage && handleSendMessage()}
-                                            placeholder="Type a message..."
-                                            className="flex-1"
-                                            disabled={sendingMessage}
-                                        />
-                                        <Button 
-                                            onClick={handleSendMessage}
-                                            disabled={sendingMessage}
-                                        >
-                                            {sendingMessage ? (
-                                                <Loader2 className="h-4 w-4 animate-spin" />
-                                            ) : (
-                                                <Send className="h-4 w-4" />
-                                            )}
-                                        </Button>
-                                    </div>
-                                )}
+                                <div className="flex gap-2">
+                                    <Input
+                                        value={messageText}
+                                        onChange={(e) => setMessageText(e.target.value)}
+                                        onKeyDown={(e) => e.key === 'Enter' && !sendingMessage && handleSendMessage()}
+                                        placeholder="Type a message..."
+                                        className="flex-1"
+                                        disabled={sendingMessage}
+                                    />
+                                    <Button 
+                                        onClick={handleSendMessage}
+                                        disabled={sendingMessage}
+                                    >
+                                        {sendingMessage ? (
+                                            <Loader2 className="h-4 w-4 animate-spin" />
+                                        ) : (
+                                            <Send className="h-4 w-4" />
+                                        )}
+                                    </Button>
+                                </div>
                             </div>
                         </>
                     ) : (

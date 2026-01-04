@@ -268,5 +268,5 @@ async def delete_template(name: str, current_user: UserPublic = Depends(get_curr
 
 
 @router.post("/send-template")
-async def send_template(req: TemplateRequest, current_user: UserPublic = Depends(get_current_user)):
-    return await send_template_message(req)
+async def send_template(req: TemplateRequest, current_user: UserPublic = Depends(get_current_user), db = Depends(get_db)):
+    return await send_template_message(req, db=db, user_id=current_user.id)

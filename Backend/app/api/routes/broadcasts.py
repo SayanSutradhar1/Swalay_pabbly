@@ -61,7 +61,7 @@ async def create_broadcast(req: BroadcastRequest, current_user: UserPublic = Dep
                 header_type=req.header_type,
             )
 
-            res = await send_template_message(template_req)
+            res = await send_template_message(template_req, db=db, user_id=current_user.id)
 
             if isinstance(res, dict) and res.get("success"):
                 recipient["status"] = "sent"

@@ -1,3 +1,4 @@
+from datetime import datetime
 import httpx
 from fastapi import HTTPException
 
@@ -33,7 +34,7 @@ async def fetch_header_image_url(template_id: str, client: httpx.AsyncClient) ->
     raise HTTPException(status_code=400, detail="Template header image URL not found")
 
 
-async def send_template_message(req: TemplateRequest):
+async def send_template_message(req: TemplateRequest, db=None, user_id=None):
     if not req.phone or not req.template_name:
         raise HTTPException(status_code=400, detail="Phone and template name are required")
 
@@ -103,10 +104,81 @@ async def send_template_message(req: TemplateRequest):
         try:
             response = await client.post(url, json=payload, headers=headers)
             response.raise_for_status()
-            return {"success": True, "whatsapp_response": response.json()}
+            whatsapp_response = response.json()
+            
+            # Save template message to database
+            if db is not None:
+                # Build the template text preview for display
+                template_text = f"Template: {req.template_name}"
+                if req.body_parameters:
+                    template_text += f" (params: {', '.join(req.body_parameters)})"
+                
+                message_doc = {
+                    "chatId": req.phone,
+                    "senderId": user_id if user_id else "system",
+                    "receiverId": req.phone,
+                    "direction": "outgoing",
+                    "text": template_text,
+                    "status": "sent",
+                    "messageType": "template",
+                    "templateName": req.template_name,
+                    "createdAt": datetime.utcnow().isoformat(),
+                    "updatedAt": datetime.utcnow().isoformat(),
+                    "whatsappMessageId": whatsapp_response.get("messages", [{}])[0].get("id") if whatsapp_response.get("messages") else None,
+                }
+                
+                await db["messages"].insert_one(message_doc)
+            
+            return {"success": True, "whatsapp_response": whatsapp_response}
         except httpx.HTTPStatusError as e:
             print(f"Error sending template: {e.response.text}")
+            
+            # Save failed template message to database
+            if db is not None:
+                template_text = f"Template: {req.template_name}"
+                if req.body_parameters:
+                    template_text += f" (params: {', '.join(req.body_parameters)})"
+                
+                message_doc = {
+                    "chatId": req.phone,
+                    "senderId": user_id if user_id else "system",
+                    "receiverId": req.phone,
+                    "direction": "outgoing",
+                    "text": template_text,
+                    "status": "failed",
+                    "messageType": "template",
+                    "templateName": req.template_name,
+                    "createdAt": datetime.utcnow().isoformat(),
+                    "updatedAt": datetime.utcnow().isoformat(),
+                    "whatsappMessageId": None,
+                }
+                
+                await db["messages"].insert_one(message_doc)
+            
             return {"success": False, "error": "Failed to send template", "details": e.response.json()}
         except Exception as e:
             print(f"Unexpected error: {str(e)}")
+            
+            # Save failed template message to database
+            if db is not None:
+                template_text = f"Template: {req.template_name}"
+                if req.body_parameters:
+                    template_text += f" (params: {', '.join(req.body_parameters)})"
+                
+                message_doc = {
+                    "chatId": req.phone,
+                    "senderId": user_id if user_id else "system",
+                    "receiverId": req.phone,
+                    "direction": "outgoing",
+                    "text": template_text,
+                    "status": "failed",
+                    "messageType": "template",
+                    "templateName": req.template_name,
+                    "createdAt": datetime.utcnow().isoformat(),
+                    "updatedAt": datetime.utcnow().isoformat(),
+                    "whatsappMessageId": None,
+                }
+                
+                await db["messages"].insert_one(message_doc)
+            
             return {"success": False, "error": "Unexpected error", "details": {"message": str(e)}}
