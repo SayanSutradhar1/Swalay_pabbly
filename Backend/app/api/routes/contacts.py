@@ -92,8 +92,9 @@ async def dashboard_stats(current_user: UserPublic = Depends(get_current_user), 
     # Execute all counts in parallel
     contacts_count = await db["contacts"].count_documents({"user_id": user_oid})
     contact_lists_count = await db["contact_lists"].count_documents({"user_id": user_oid})
-    templates_count = await db["templates"].count_documents({"user_id": user_oid})
-    broadcasts_count = await db["broadcasts"].count_documents({"user_id": user_oid})
+    # Templates are global (shared across users from Meta), so we don't filter by user_id
+    templates_count = await db["templates"].count_documents({})
+    broadcasts_count = await db["broadcasts"].count_documents({"user_id": current_user.id})
     
     return {
         "contacts": contacts_count,

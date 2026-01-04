@@ -7,16 +7,21 @@ import { useRouter } from "next/navigation";
 
 interface TemplateRowProps {
     template: Template;
-}
-
-export default function TemplateRow({ template, onSend, onDelete }: {
-    template: Template;
     onSend: (template: Template) => void;
     onDelete: (template: Template) => void;
-}) {
+    selectionMode: boolean;
+    selected: boolean;
+    onToggleSelect: () => void;
+}
+
+export default function TemplateRow({ template, onSend, onDelete, selectionMode, selected, onToggleSelect }: TemplateRowProps) {
     const router = useRouter();
 
     const handleRowClick = () => {
+        if (selectionMode) {
+            onToggleSelect();
+            return;
+        }
         router.push(`/templates/${template.id}`);
     };
 
@@ -38,10 +43,20 @@ export default function TemplateRow({ template, onSend, onDelete }: {
 
     return (
         <TableRow
-            key={template.id}
             onClick={handleRowClick}
             className="cursor-pointer bg-card text-card-foreground hover:bg-primary/10 hover:text-primary transition-colors"
         >
+            {selectionMode && (
+                <TableCell className="w-12" onClick={(e) => e.stopPropagation()}>
+                    <input
+                        type="checkbox"
+                        checked={selected}
+                        onChange={onToggleSelect}
+                        className="h-4 w-4 accent-primary"
+                        aria-label={`Select ${template.name}`}
+                    />
+                </TableCell>
+            )}
             <TableCell className="font-medium text-card-foreground">{template.name}</TableCell>
             <TableCell className="text-muted">{template.category}</TableCell>
             <TableCell className="text-muted">{template.language}</TableCell>
@@ -54,7 +69,7 @@ export default function TemplateRow({ template, onSend, onDelete }: {
                                 ? "warning"
                                 : template.status === "REJECTED"
                                     ? "destructive"
-                                    : "secondary" // Draft
+                                    : "secondary"
                     }
                 >
                     {template.status}
@@ -63,7 +78,7 @@ export default function TemplateRow({ template, onSend, onDelete }: {
             <TableCell className="text-muted text-sm">{formatDate(template.created_at)}</TableCell>
             <TableCell className="text-right">
                 <div className="flex justify-end gap-2">
-                    {template.status !== "PENDING" && (
+                    {!selectionMode && template.status !== "PENDING" && (
                         <>
                             <Button
                                 variant="ghost"

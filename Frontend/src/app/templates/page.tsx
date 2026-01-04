@@ -29,6 +29,8 @@ export default function TemplatesPage() {
     const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
 
     const [deleteLoading, setDeleteLoading] = useState(false);
+    const [selectionMode, setSelectionMode] = useState(false);
+    const [selectedTemplates, setSelectedTemplates] = useState<string[]>([]);
 
     // Send Dialog State
     const [isSendDialogOpen, setIsSendDialogOpen] = useState(false);
@@ -96,6 +98,63 @@ export default function TemplatesPage() {
         } catch (error) {
             console.error("Failed to delete template", error);
             alert("Failed to delete template");
+        } finally {
+            setDeleteLoading(false);
+        }
+    };
+
+    const toggleTemplateSelection = (templateId: string) => {
+        setSelectedTemplates((prev) =>
+            prev.includes(templateId)
+                ? prev.filter((id) => id !== templateId)
+                : [...prev, templateId]
+        );
+    };
+
+    const handleSelectAllVisible = (visibleTemplates: Template[]) => {
+        const visibleIds = visibleTemplates.map((t) => t.id);
+        const allVisibleSelected = visibleIds.every((id) => selectedTemplates.includes(id));
+
+        if (allVisibleSelected) {
+            setSelectedTemplates((prev) => prev.filter((id) => !visibleIds.includes(id)));
+        } else {
+            setSelectedTemplates((prev) => Array.from(new Set([...prev, ...visibleIds])));
+        }
+    };
+
+    const exitSelectionMode = () => {
+        setSelectionMode(false);
+        setSelectedTemplates([]);
+    };
+
+    const handleBulkDeleteClick = async () => {
+        if (!selectionMode) {
+            setSelectionMode(true);
+            setSelectedTemplates([]);
+            return;
+        }
+
+        if (selectedTemplates.length === 0) {
+            alert("Please select at least one template to delete.");
+            return;
+        }
+
+        const templatesToDelete = templates.filter((t) => selectedTemplates.includes(t.id));
+        if (templatesToDelete.length === 0) {
+            alert("No matching templates found for deletion.");
+            return;
+        }
+
+        if (!confirm(`Delete ${templatesToDelete.length} selected template(s)?`)) return;
+
+        setDeleteLoading(true);
+        try {
+            await Promise.all(templatesToDelete.map((t) => deleteTemplate(t.name)));
+            setTemplates((prev) => prev.filter((t) => !selectedTemplates.includes(t.id)));
+            exitSelectionMode();
+        } catch (error) {
+            console.error("Failed to delete selected templates", error);
+            alert("Failed to delete selected templates");
         } finally {
             setDeleteLoading(false);
         }
@@ -214,6 +273,12 @@ export default function TemplatesPage() {
         return result;
     })();
 
+    const columnCount = selectionMode ? 7 : 6;
+    const allVisibleSelected =
+        selectionMode &&
+        filteredTemplates.length > 0 &&
+        filteredTemplates.every((t) => selectedTemplates.includes(t.id));
+
     // Helper to render preview text with replaced params
     const renderPreviewText = (text: string, params: string[]) => {
         let preview = text;
@@ -262,6 +327,18 @@ export default function TemplatesPage() {
                         <RefreshCw className={`mr-2 h-4 w-4 ${syncing ? "animate-spin" : ""}`} />
                         {syncing ? "Syncing..." : "Sync"}
                     </Button>
+                    <Button
+                        variant={selectionMode ? "destructive" : "outline"}
+                        onClick={() => handleBulkDeleteClick()}
+                        disabled={deleteLoading || loading || templates.length === 0}
+                    >
+                        {selectionMode ? (deleteLoading ? "Deleting..." : "Delete Selected") : "Delete"}
+                    </Button>
+                    {selectionMode && (
+                        <Button variant="ghost" onClick={exitSelectionMode} disabled={deleteLoading}>
+                            Cancel
+                        </Button>
+                    )}
                     <Button onClick={handleAddTemplate}>
                         <Plus className="mr-2 h-4 w-4" /> Add Template
                     </Button>
@@ -286,6 +363,17 @@ export default function TemplatesPage() {
                     <Table>
                         <TableHeader>
                             <TableRow>
+                                {selectionMode && (
+                                    <TableHead className="w-12">
+                                        <input
+                                            type="checkbox"
+                                            aria-label="Select all visible templates"
+                                            checked={allVisibleSelected}
+                                            onChange={() => handleSelectAllVisible(filteredTemplates)}
+                                            className="h-4 w-4 accent-primary"
+                                        />
+                                    </TableHead>
+                                )}
                                 <TableHead>Template Name</TableHead>
                                 <TableHead>Category</TableHead>
                                 <TableHead>Language</TableHead>
@@ -297,13 +385,13 @@ export default function TemplatesPage() {
                         <TableBody>
                             {loading ? (
                                 <TableRow>
-                                    <TableCell colSpan={6} className="text-center py-8 text-gray-500">
+                                    <TableCell colSpan={columnCount} className="text-center py-8 text-gray-500">
                                         Loading templates...
                                     </TableCell>
                                 </TableRow>
                             ) : filteredTemplates.length === 0 ? (
                                 <TableRow>
-                                    <TableCell colSpan={6} className="text-center py-8 text-gray-500">
+                                    <TableCell colSpan={columnCount} className="text-center py-8 text-gray-500">
                                         No templates found.
                                     </TableCell>
                                 </TableRow>
@@ -314,6 +402,9 @@ export default function TemplatesPage() {
                                         template={template}
                                         onDelete={handleDeleteTemplate}
                                         onSend={handleSendClick}
+                                        selectionMode={selectionMode}
+                                        selected={selectedTemplates.includes(template.id)}
+                                        onToggleSelect={() => toggleTemplateSelection(template.id)}
                                     />
                                 ))
                             )}
