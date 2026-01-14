@@ -24,11 +24,12 @@ class WhatsAppSignupRequest(BaseModel):
 @router.post("/whatsapp/signup")
 async def whatsapp_signup(
     payload: WhatsAppSignupRequest,
+    current_user: UserPublic = Depends(get_current_user),
     db=Depends(get_db)
 ):
     flow_id = payload.flow_id or "unknown"
-    # Fallback to "admin" if no user_id provided (since auth was removed per request)
-    user_id = payload.user_id or "admin" 
+    # Use the authenticated user's ID
+    user_id = current_user.id 
     
     logger.info(
         "Received WhatsApp signup request", 

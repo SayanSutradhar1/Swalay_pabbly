@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import auth, broadcasts, media, messages, templates, webhook, onboarding, users
+from app.api.routes import auth, broadcasts, media, messages, templates, webhook, onboarding, profile
 from app.api.routes import contacts, contact_lists
 from app.db.mongo import close_mongo, connect_to_mongo
 from app.sockets import create_socket_app
@@ -77,7 +77,7 @@ app.include_router(broadcasts.router)
 app.include_router(contacts.router)
 app.include_router(contact_lists.router)
 app.include_router(onboarding.router)
-app.include_router(users.router)
+app.include_router(profile.router)
 
 
 @app.get("/health")

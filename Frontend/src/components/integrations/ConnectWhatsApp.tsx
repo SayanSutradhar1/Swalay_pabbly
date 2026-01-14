@@ -1,6 +1,8 @@
 "use client";
     
 import { useEffect, useState } from "react";
+import { connectWhatsApp } from "@/api/profile";
+import { useRouter } from "next/navigation";
 
 declare global {
     interface Window {
@@ -9,15 +11,20 @@ declare global {
     }
 }
 
-export default function ConnectWhatsApp() {
+interface ConnectWhatsAppProps {
+    onSuccess?: () => void;
+}
+
+export default function ConnectWhatsApp({ onSuccess }: ConnectWhatsAppProps) {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const router = useRouter();
 
     // Load Facebook SDK
     useEffect(() => {
         window.fbAsyncInit = function () {
             window.FB.init({
-                appId: process.env.NEXT_PUBLIC_FACEBOOK_APP_ID || "", // Ensure you have this env var
+                appId: process.env.NEXT_PUBLIC_META_APP_ID || "", // Use META_APP_ID from env
                 autoLogAppEvents: true,
                 xfbml: true,
                 version: "v21.0", // Use the latest available version
@@ -42,9 +49,7 @@ export default function ConnectWhatsApp() {
         setError(null);
 
         // Configuration for the Embedded Signup
-        // You'll need to confirm these details from your setup (config_id, etc.)
-        // For now, we launch with standard parameters.
-        const configId = process.env.NEXT_PUBLIC_WHATSAPP_CONFIG_ID; // Pre-configured config ID from Meta App Dashboard
+        const configId = process.env.NEXT_PUBLIC_META_CONFIG_ID; // Pre-configured config ID from Meta App Dashboard
 
         // Fallback if no config ID (though usually required for newer flows) or direct login
         if (!window.FB) {
@@ -90,11 +95,33 @@ export default function ConnectWhatsApp() {
                     const { waba_id, phone_number_id, code } = data.data;
                     console.log("Embedded Signup Data:", data.data);
 
-                    // TODO: Send to backend
-                    // await sendToBackend({ waba_id, phone_number_id, code });
+                    try {
+                        setLoading(true);
+                        setError(null);
+                        
+                        // Send to backend
+                        await connectWhatsApp({
+                            waba_id,
+                            phone_number_id,
+                            code,
+                            flow_id: "embedded_signup"
+                        });
 
-                    // For now just alert or log
-                    alert(`Connected! WABA: ${waba_id}, Phone: ${phone_number_id}`);
+                        console.log("WhatsApp connected successfully!");
+                        
+                        // Call onSuccess callback if provided
+                        if (onSuccess) {
+                            onSuccess();
+                        } else {
+                            // Refresh the page to update the profile
+                            router.refresh();
+                        }
+                    } catch (err: any) {
+                        console.error("Failed to connect WhatsApp:", err);
+                        setError(err.message || "Failed to connect WhatsApp");
+                    } finally {
+                        setLoading(false);
+                    }
                 }
             } catch (e) {
                 // Not a JSON message or not relevant
@@ -103,7 +130,7 @@ export default function ConnectWhatsApp() {
 
         window.addEventListener("message", handleMessage);
         return () => window.removeEventListener("message", handleMessage);
-    }, []);
+    }, [onSuccess, router]);
 
     return (
         <div className="mt-4">

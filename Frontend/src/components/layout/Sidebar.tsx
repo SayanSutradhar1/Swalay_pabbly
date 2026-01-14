@@ -17,6 +17,7 @@ import {
     Settings,
     ChevronLeft,
     ChevronRight,
+    UserCircle,
 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
@@ -31,6 +32,7 @@ const sidebarItems = [
     // { icon: Workflow, label: "Flows", href: "/flows" },
     // { icon: Bot, label: "AI Assistant", href: "/ai-assistant" },
     // { icon: Activity, label: "Activity Log", href: "/activity-log" },
+    { icon: UserCircle, label: "Profile", href: "/profile" },
     // { icon: CreditCard, label: "WhatsApp Payment", href: "/whatsapp-payment" },
     // { icon: Settings, label: "Settings", href: "/settings" },
 ];
