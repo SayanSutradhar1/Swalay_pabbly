@@ -1,135 +1,120 @@
 "use client";
-
+    
 import { useEffect, useState } from "react";
-import { Button } from "@/components/ui/Button";
-import { useToast } from "@/components/ui/use-toast";
-import Script from "next/script";
 
 declare global {
     interface Window {
-        FB: any;
         fbAsyncInit: () => void;
+        FB: any;
     }
 }
 
 export default function ConnectWhatsApp() {
-    const { toast } = useToast();
     const [loading, setLoading] = useState(false);
-    const [sdkLoaded, setSdkLoaded] = useState(false);
+    const [error, setError] = useState<string | null>(null);
 
-    // Initialize Facebook SDK
+    // Load Facebook SDK
     useEffect(() => {
         window.fbAsyncInit = function () {
             window.FB.init({
-                appId: process.env.NEXT_PUBLIC_META_APP_ID,
-                cookie: true,
-                xfbml: false, // Must be false for Embedded Signup
-                version: "v20.0",
+                appId: process.env.NEXT_PUBLIC_FACEBOOK_APP_ID || "", // Ensure you have this env var
+                autoLogAppEvents: true,
+                xfbml: true,
+                version: "v21.0", // Use the latest available version
             });
-            setSdkLoaded(true);
         };
+
+        // Load SDK script
+        (function (d, s, id) {
+            if (d.getElementById(id)) return;
+            const fjs = d.getElementsByTagName(s)[0];
+            const js = d.createElement(s) as HTMLScriptElement;
+            js.id = id;
+            js.src = "https://connect.facebook.net/en_US/sdk.js";
+            if (fjs && fjs.parentNode) {
+                fjs.parentNode.insertBefore(js, fjs);
+            }
+        })(document, "script", "facebook-jssdk");
     }, []);
 
-    const handleLogin = () => {
-        if (!sdkLoaded || !window.FB) {
-            toast({
-                title: "Error",
-                description: "Facebook SDK not loaded yet. Please refresh the page.",
-                variant: "destructive",
-            });
+    const launchWhatsAppSignup = () => {
+        setLoading(true);
+        setError(null);
+
+        // Configuration for the Embedded Signup
+        // You'll need to confirm these details from your setup (config_id, etc.)
+        // For now, we launch with standard parameters.
+        const configId = process.env.NEXT_PUBLIC_WHATSAPP_CONFIG_ID; // Pre-configured config ID from Meta App Dashboard
+
+        // Fallback if no config ID (though usually required for newer flows) or direct login
+        if (!window.FB) {
+            setLoading(false);
+            setError("Facebook SDK not loaded yet.");
             return;
         }
 
-        setLoading(true);
-
-        // Launch Embedded Signup
-        // The ONLY valid Embedded Signup trigger is:
-        // FB.login(cb, {
-        //   scope: "whatsapp_business_management, whatsapp_business_messaging",
-        //   extras: {
-        //     setup: {
-        //       config_id: process.env.NEXT_PUBLIC_META_CONFIG_ID
-        //     }
-        //   }
-        // })
         window.FB.login(
             function (response: any) {
                 if (response.authResponse) {
-                    const code = response.authResponse.code;
-                    if (code) {
-                        sendToBackend(code);
-                    } else {
-                        setLoading(false);
-                        toast({ title: "Error", description: "No code received from Facebook Login.", variant: "destructive" });
-                    }
+                    const accessToken = response.authResponse.accessToken;
+                    // Use this token to exchange or fetch details. 
+                    // Note: The message event listener approach is often used for the embedded flow specifically.
+                    console.log("Facebook Login Success", response);
                 } else {
-                    setLoading(false);
                     console.log("User cancelled login or did not fully authorize.");
+                    setLoading(false);
                 }
             },
             {
                 scope: "whatsapp_business_management, whatsapp_business_messaging",
                 extras: {
-                    setup: {
-                        config_id: process.env.NEXT_PUBLIC_META_CONFIG_ID
-                    }
+                    feature: "whatsapp_embedded_signup",
+                    version: 2,
+                    sessionInfoVersion: 2,
                 }
             }
         );
     };
 
-    const sendToBackend = async (code: string) => {
-        try {
-            // Send ONLY code to backend
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/onboarding/whatsapp/signup`, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    // Add auth token if needed
-                },
-                body: JSON.stringify({
-                    code
-                }),
-            });
+    // Listen for the message event from the Embedded Signup flow
+    useEffect(() => {
+        const handleMessage = async (event: MessageEvent) => {
+            // Security check: validate origin if necessary
+            // if (event.origin !== "https://www.facebook.com") return;
 
-            if (!res.ok) {
-                const errorData = await res.json();
-                throw new Error(errorData.detail || "Backend failed");
+            try {
+                const data = JSON.parse(event.data);
+
+                if (data.type === "WA_EMBEDDED_SIGNUP") {
+                    // User completed the flow
+                    const { waba_id, phone_number_id, code } = data.data;
+                    console.log("Embedded Signup Data:", data.data);
+
+                    // TODO: Send to backend
+                    // await sendToBackend({ waba_id, phone_number_id, code });
+
+                    // For now just alert or log
+                    alert(`Connected! WABA: ${waba_id}, Phone: ${phone_number_id}`);
+                }
+            } catch (e) {
+                // Not a JSON message or not relevant
             }
+        };
 
-            const data = await res.json();
-            toast({
-                title: "Success",
-                description: "WhatsApp connected successfully!",
-            });
-        } catch (error: any) {
-            console.error(error);
-            toast({
-                title: "Error",
-                description: error.message || "Failed to connect WhatsApp.",
-                variant: "destructive",
-            });
-        } finally {
-            setLoading(false);
-        }
-    };
+        window.addEventListener("message", handleMessage);
+        return () => window.removeEventListener("message", handleMessage);
+    }, []);
 
     return (
-        <div className="flex flex-col items-center gap-4 p-6 border rounded-lg shadow-sm">
-            <Script
-                src="https://connect.facebook.net/en_US/sdk.js"
-                strategy="lazyOnload"
-                onLoad={() => {
-                    // SDK loaded
-                }}
-            />
-            <h2 className="text-xl font-semibold">Connect WhatsApp Business</h2>
-            <p className="text-gray-500 text-center max-w-md">
-                Link your WhatsApp Business Account to start sending messages and campaigns.
-            </p>
-            <Button onClick={handleLogin} disabled={loading || !sdkLoaded}>
+        <div className="mt-4">
+            {error && <p className="text-red-500 text-sm mb-2">{error}</p>}
+            <button
+                onClick={launchWhatsAppSignup}
+                disabled={loading}
+                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50"
+            >
                 {loading ? "Connecting..." : "Connect WhatsApp"}
-            </Button>
+            </button>
         </div>
     );
 }
