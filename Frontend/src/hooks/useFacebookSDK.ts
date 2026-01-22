@@ -38,22 +38,29 @@ export const useFacebookSDK = () => {
         })(document, "script", "facebook-jssdk");
     }, []);
 
-    const login = (): Promise<any> => {
-        return new Promise((resolve, reject) => {
-            if (!window.FB) {
-                reject(new Error("Facebook SDK not loaded"));
-                return;
-            }
+    const getAuthorizationUrl = (): string => {
+        const appId = process.env.NEXT_PUBLIC_META_APP_ID;
+        const redirectUri = process.env.NEXT_PUBLIC_FACEBOOK_REDIRECT_URI;
+        const scopes = ['business_management', 'whatsapp_business_management'];
+        
+        if (!appId || !redirectUri) {
+            throw new Error("Missing META_APP_ID or FACEBOOK_REDIRECT_URI environment variables");
+        }
 
-            window.FB.login((response: any) => {
-                if (response.authResponse) {
-                    resolve(response.authResponse);
-                } else {
-                    reject(new Error("User cancelled login or did not fully authorize."));
-                }
-            }, { scope: 'email,public_profile' });
+        const params = new URLSearchParams({
+            client_id: appId,
+            redirect_uri: redirectUri,
+            scope: scopes.join(','),
+            response_type: 'code',
+            state: generateRandomState(),
         });
+
+        return `https://www.facebook.com/${process.env.NEXT_PUBLIC_META_API_VERSION || 'v21.0'}/dialog/oauth?${params.toString()}`;
     };
 
-    return { isLoaded, login };
+    const generateRandomState = (): string => {
+        return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+    };
+
+    return { isLoaded, getAuthorizationUrl };
 };

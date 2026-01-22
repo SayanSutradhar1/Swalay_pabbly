@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
 
 from app.api.routes import auth, broadcasts, media, messages, templates, webhook, onboarding, profile
 from app.api.routes import contacts, contact_lists
@@ -18,7 +19,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger("api")
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    await connect_to_mongo(app)
+    yield
+    # Shutdown
+    await close_mongo(app)
+
+app = FastAPI(lifespan=lifespan)
 
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
@@ -56,16 +65,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-@app.on_event("startup")
-async def startup_db_client():
-    await connect_to_mongo(app)
-
-
-@app.on_event("shutdown")
-async def shutdown_db_client():
-    await close_mongo(app)
 
 
 app.include_router(auth.router)

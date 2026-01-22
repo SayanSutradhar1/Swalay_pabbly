@@ -9,9 +9,13 @@ import { Footer } from "@/components/layout/Footer";
 
 export function AppShell({ children }: { children: ReactNode }) {
     const pathname = usePathname();
+    
+    // Routes that should not show the sidebar/topbar (auth and onboarding flows)
     const isAuthRoute = pathname?.startsWith("/login") || pathname?.startsWith("/signup");
+    const isOnboardingRoute = pathname?.startsWith("/onboarding");
+    const isMinimalLayout = isAuthRoute || isOnboardingRoute;
 
-    if (isAuthRoute) {
+    if (isMinimalLayout) {
         return (
             <main className="min-h-screen flex flex-col bg-gray-50">
                 <div className="flex-1 flex items-center justify-center">

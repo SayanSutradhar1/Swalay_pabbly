@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -26,12 +26,29 @@ const signupSchema = z
 
 type SignupForm = z.infer<typeof signupSchema>;
 
-export default function SignupPage() {
+function SignupFormContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
-    const redirectPath = searchParams.get("redirect") || "/dashboard";
+    // Only allow 'redirect' param - ignore any sensitive data in URL
+    const redirectPath = searchParams.get("redirect") || "/onboarding";
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
+
+    // Security: Clean up URL if it contains sensitive data
+    useEffect(() => {
+        const url = new URL(window.location.href);
+        const hasEmail = url.searchParams.has("email");
+        const hasPassword = url.searchParams.has("password");
+        const hasName = url.searchParams.has("name");
+        
+        if (hasEmail || hasPassword || hasName) {
+            // Remove sensitive params from URL without reload
+            url.searchParams.delete("email");
+            url.searchParams.delete("password");
+            url.searchParams.delete("name");
+            window.history.replaceState({}, "", url.pathname + (url.searchParams.toString() ? `?${url.searchParams.toString()}` : ""));
+        }
+    }, []);
 
     const {
         register,
@@ -49,9 +66,14 @@ export default function SignupPage() {
         setLoading(true);
         try {
             console.debug('[signup] submitting', { email: values.email, name: values.name });
-            await signup({ email: values.email, password: values.password });
-            router.replace(redirectPath);
+            const result = await signup({ email: values.email, password: values.password });
+            if (result?.access_token) {
+                router.replace(redirectPath);
+            } else {
+                throw new Error("Signup failed - no token received");
+            }
         } catch (err: any) {
+            console.error('[signup] error:', err);
             setError(err?.message || "Unable to sign up");
         } finally {
             setLoading(false);
@@ -108,7 +130,12 @@ export default function SignupPage() {
                         <p className="text-gray-500 text-lg">Start your journey with Swalay today</p>
                     </div>
 
-                    <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+                    <form 
+                        onSubmit={handleSubmit(onSubmit)} 
+                        method="post"
+                        action="#"
+                        className="space-y-5"
+                    >
                         {/* Name Field */}
                         <div className="space-y-2">
                             <label className="text-sm font-medium text-gray-700 block">
@@ -249,5 +276,27 @@ export default function SignupPage() {
                 </div>
             </div>
         </div>
+    );
+}
+
+// Loading fallback for Suspense
+function SignupFormSkeleton() {
+    return (
+        <div className="min-h-screen w-full flex items-center justify-center bg-white">
+            <div className="animate-pulse flex flex-col items-center">
+                <div className="w-20 h-20 bg-blue-200 rounded-2xl mb-6"></div>
+                <div className="w-32 h-8 bg-gray-200 rounded mb-4"></div>
+                <div className="w-48 h-4 bg-gray-100 rounded"></div>
+            </div>
+        </div>
+    );
+}
+
+// Main page export with Suspense boundary for useSearchParams
+export default function SignupPage() {
+    return (
+        <Suspense fallback={<SignupFormSkeleton />}>
+            <SignupFormContent />
+        </Suspense>
     );
 }

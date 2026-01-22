@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -17,12 +17,27 @@ const loginSchema = z.object({
 
 type LoginForm = z.infer<typeof loginSchema>;
 
-export default function LoginPage() {
+function LoginForm() {
     const router = useRouter();
     const searchParams = useSearchParams();
+    // Only allow 'redirect' param - ignore any email/password in URL for security
     const redirectPath = searchParams.get("redirect") || "/dashboard";
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
+
+    // Security: Clean up URL if it contains sensitive data
+    useEffect(() => {
+        const url = new URL(window.location.href);
+        const hasEmail = url.searchParams.has("email");
+        const hasPassword = url.searchParams.has("password");
+        
+        if (hasEmail || hasPassword) {
+            // Remove sensitive params from URL without reload
+            url.searchParams.delete("email");
+            url.searchParams.delete("password");
+            window.history.replaceState({}, "", url.pathname + (url.searchParams.toString() ? `?${url.searchParams.toString()}` : ""));
+        }
+    }, []);
 
     const {
         register,
@@ -37,9 +52,14 @@ export default function LoginPage() {
         setLoading(true);
         try {
             console.debug('[login] submitting', { email: values.email });
-            await login(values as { email: string; password: string });
-            router.replace(redirectPath);
+            const result = await login({ email: values.email, password: values.password });
+            if (result?.access_token) {
+                router.replace(redirectPath);
+            } else {
+                throw new Error("Login failed - no token received");
+            }
         } catch (err: any) {
+            console.error('[login] error:', err);
             setError(err?.message || "Unable to login");
         } finally {
             setLoading(false);
@@ -96,7 +116,12 @@ export default function LoginPage() {
                         <p className="text-gray-500 text-lg">Sign in to continue to your workspace</p>
                     </div>
 
-                    <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+                    <form 
+                        onSubmit={handleSubmit(onSubmit)} 
+                        method="post"
+                        action="#"
+                        className="space-y-6"
+                    >
                         {/* Email Field */}
                         <div className="space-y-2">
                             <label className="text-sm font-medium text-gray-700 block">
@@ -187,5 +212,27 @@ export default function LoginPage() {
                 </div>
             </div>
         </div>
+    );
+}
+
+// Loading fallback for Suspense
+function LoginFormSkeleton() {
+    return (
+        <div className="min-h-screen w-full flex items-center justify-center bg-white">
+            <div className="animate-pulse flex flex-col items-center">
+                <div className="w-20 h-20 bg-blue-200 rounded-2xl mb-6"></div>
+                <div className="w-32 h-8 bg-gray-200 rounded mb-4"></div>
+                <div className="w-48 h-4 bg-gray-100 rounded"></div>
+            </div>
+        </div>
+    );
+}
+
+// Main page export with Suspense boundary for useSearchParams
+export default function LoginPage() {
+    return (
+        <Suspense fallback={<LoginFormSkeleton />}>
+            <LoginForm />
+        </Suspense>
     );
 }

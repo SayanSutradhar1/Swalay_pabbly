@@ -4,8 +4,9 @@ python-multipart
 httpx
 pydantic-settings
 motor
+pymongo
 passlib[bcrypt]
-python-jose
+python-jose[cryptography]
 email-validator
 python-socketio
 aiofiles

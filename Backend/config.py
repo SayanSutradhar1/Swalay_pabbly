@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings
+from typing import Optional
 
 class Settings(BaseSettings):
     WHATSAPP_ACCESS_TOKEN: str
@@ -15,8 +16,14 @@ class Settings(BaseSettings):
     JWT_SECRET_KEY: str
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRES_IN_MINUTES: int = 600
-    COOKIE_SECURE: bool = False
-    COOKIE_SAMESITE: str = "lax"
+    # Cookie settings - for GitHub Codespaces (HTTPS), set COOKIE_SECURE=true and COOKIE_SAMESITE=none
+    COOKIE_SECURE: bool = True
+    COOKIE_SAMESITE: str = "none"
+    # Facebook OAuth Business Login (optional - set these for business login support)
+    FACEBOOK_APP_ID: Optional[str] = None
+    FACEBOOK_APP_SECRET: Optional[str] = None
+    FACEBOOK_REDIRECT_URI: Optional[str] = None
+    META_API_VERSION: str = "v21.0"
 
     class Config:
         env_file = ".env"
